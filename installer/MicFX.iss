@@ -10,7 +10,7 @@ AppId={{8E7A2C51-9D1B-4F2E-B1B0-5C0E1D9FA1CE}
 AppName=MicFX
 AppVersion={#MyAppVersion}
 AppPublisher=Norbeto0
-AppPublisherURL=https://github.com/Norbeto0/Main
+AppPublisherURL=https://github.com/Norbeto0/MicFX
 DefaultDirName={autopf}\MicFX
 DefaultGroupName=MicFX
 UninstallDisplayIcon={app}\MicFX.exe
@@ -36,6 +36,14 @@ Name: "{autodesktop}\MicFX"; Filename: "{app}\MicFX.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\MicFX.exe"; Description: "Launch MicFX"; Flags: nowait postinstall skipifsilent
+; In-app auto-update runs setup with /VERYSILENT /AUTORELAUNCH=1 — relaunch MicFX afterwards.
+Filename: "{app}\MicFX.exe"; Parameters: "--updated"; Flags: nowait; Check: IsAutoRelaunch
+
+[Code]
+function IsAutoRelaunch: Boolean;
+begin
+  Result := ExpandConstant('{param:AUTORELAUNCH|0}') = '1';
+end;
 
 [UninstallRun]
 ; nothing — settings in %APPDATA%\MicFX are left in place on purpose

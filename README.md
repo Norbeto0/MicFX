@@ -30,7 +30,8 @@ Microphone → Mic gain → Noise gate → 10-band EQ → Voice effect
 - 📈 Live input/output level meters, mic gain & master volume
 - 🖥 **Close-to-tray**: clicking ✕ minimizes MicFX to the system tray (exit via the tray icon)
 - 🚀 **Run on Windows startup** (optional) — starts minimized in the tray
-- 🔔 **Update check** against GitHub releases; guided first-run VB-Cable setup
+- 🔄 **In-app auto-update** from GitHub releases (one click: download, silent
+  install, restart); guided first-run VB-Cable setup
 - 💾 All settings persisted in `%APPDATA%\MicFX\settings.json`
 
 The full product spec this app was built from is in [SPEC.md](SPEC.md).

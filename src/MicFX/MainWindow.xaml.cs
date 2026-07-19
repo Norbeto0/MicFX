@@ -35,7 +35,7 @@ public class SoundTile
 
 public partial class MainWindow : Window
 {
-    private const string RepoSlug = "Norbeto0/Main";
+    private const string RepoSlug = "Norbeto0/MicFX";
 
     private static readonly Dictionary<string, float[]> EqPresets = new()
     {
@@ -66,10 +66,18 @@ public partial class MainWindow : Window
     private Action? noticeAction;
     private Action? noticeSecondaryAction;
     private Action? noticeCloseAction;
+    private string? updateTag;
+    private string? updateHtmlUrl;
+    private string? updateSetupUrl;
+    private string? updatePortableUrl;
+    private bool updating;
 
     public MainWindow()
     {
         InitializeComponent();
+        var version = Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
+        Title = $"MicFX v{version.Major}.{version.Minor}.{version.Build} — Mic Effects Station";
+        CleanUpAfterUpdate();
         BuildEqSliders();
         BuildSpectrumBars();
         icSounds.ItemsSource = sounds;
@@ -96,6 +104,8 @@ public partial class MainWindow : Window
         TryAutoStart();
         CheckCableSetup();
         _ = CheckForUpdatesAsync();
+        if (Environment.GetCommandLineArgs().Contains("--updated"))
+            txtStatus.Text = $"Updated to v{version.Major}.{version.Minor}.{version.Build} ✓";
 
         Closing += (_, e) =>
         {
@@ -578,20 +588,156 @@ public partial class MainWindow : Window
             string json = await http.GetStringAsync(
                 $"https://api.github.com/repos/{RepoSlug}/releases/latest");
             using var doc = JsonDocument.Parse(json);
-            string? tag = doc.RootElement.GetProperty("tag_name").GetString();
-            string? url = doc.RootElement.GetProperty("html_url").GetString();
+            var root = doc.RootElement;
+            string? tag = root.GetProperty("tag_name").GetString();
+            string? url = root.GetProperty("html_url").GetString();
             if (tag == null || url == null) return;
 
             var latest = Version.Parse(tag.TrimStart('v', 'V'));
             var asm = Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
             var current = new Version(asm.Major, asm.Minor, asm.Build);
-            if (latest > current && noticeBar.Visibility != Visibility.Visible)
-                ShowNotice($"MicFX {tag} is available (you have v{current}).",
-                    "Download", () => OpenUrl(url));
+            if (latest <= current || noticeBar.Visibility == Visibility.Visible) return;
+
+            updateTag = tag;
+            updateHtmlUrl = url;
+            if (root.TryGetProperty("assets", out var assets))
+            {
+                foreach (var asset in assets.EnumerateArray())
+                {
+                    string? name = asset.GetProperty("name").GetString();
+                    string? download = asset.GetProperty("browser_download_url").GetString();
+                    if (name == null || download == null) continue;
+                    if (name.StartsWith("MicFX-Setup", StringComparison.OrdinalIgnoreCase))
+                        updateSetupUrl = download;
+                    else if (name.Equals("MicFX.exe", StringComparison.OrdinalIgnoreCase))
+                        updatePortableUrl = download;
+                }
+            }
+
+            bool canAutoUpdate = updateSetupUrl != null || updatePortableUrl != null;
+            ShowNotice($"MicFX {tag} is available (you have v{current}).",
+                canAutoUpdate ? "Install update" : "Download",
+                canAutoUpdate ? StartUpdate : () => OpenUrl(url),
+                "What's new", () => OpenUrl(url));
         }
         catch
         {
-            // Offline, rate-limited or private repo — stay quiet.
+            // Offline or rate-limited — stay quiet.
+        }
+    }
+
+    /// <summary>
+    /// Downloads and applies the update. Installed copies (in
+    /// %LOCALAPPDATA%\Programs\MicFX) run the setup silently, which replaces
+    /// the files and relaunches; portable copies swap their own exe.
+    /// </summary>
+    private async void StartUpdate()
+    {
+        if (updating) return;
+        updating = true;
+        btnNoticeAction.IsEnabled = false;
+        btnNoticeSecondary.IsEnabled = false;
+        btnNoticeClose.IsEnabled = false;
+        try
+        {
+            bool installed = IsInstalledCopy();
+            string? url = installed
+                ? updateSetupUrl ?? updatePortableUrl
+                : updatePortableUrl ?? updateSetupUrl;
+            if (url == null)
+            {
+                OpenUrl(updateHtmlUrl ?? $"https://github.com/{RepoSlug}/releases");
+                return;
+            }
+
+            bool viaSetup = url == updateSetupUrl;
+            string dest = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                viaSetup ? $"MicFX-Setup-{updateTag}.exe" : $"MicFX-{updateTag}.exe.download");
+            await DownloadFileAsync(url, dest,
+                percent => txtNotice.Text = $"Downloading MicFX {updateTag}… {percent:0}%");
+
+            txtNotice.Text = "Installing — MicFX will restart itself…";
+            if (viaSetup)
+            {
+                Process.Start(new ProcessStartInfo(dest,
+                    "/VERYSILENT /SUPPRESSMSGBOXES /FORCECLOSEAPPLICATIONS /NORESTART /AUTORELAUNCH=1")
+                {
+                    UseShellExecute = true
+                });
+            }
+            else
+            {
+                // A running exe can be renamed but not overwritten: shift the
+                // old one aside, drop the new one in place, relaunch delayed
+                // (so the single-instance mutex of this process is gone).
+                string exe = Environment.ProcessPath
+                    ?? throw new InvalidOperationException("Cannot determine the application path.");
+                string old = exe + ".old";
+                if (File.Exists(old)) File.Delete(old);
+                File.Move(exe, old);
+                File.Move(dest, exe);
+                Process.Start(new ProcessStartInfo("cmd.exe",
+                    $"/c timeout /t 2 /nobreak >nul & start \"\" \"{exe}\" --updated")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+            }
+            ForceExit();
+        }
+        catch (Exception ex)
+        {
+            txtNotice.Text = "Update failed: " + ex.Message;
+            btnNoticeAction.IsEnabled = true;
+            btnNoticeSecondary.IsEnabled = true;
+            btnNoticeClose.IsEnabled = true;
+            updating = false;
+        }
+    }
+
+    private static bool IsInstalledCopy()
+    {
+        string exeDir = System.IO.Path.GetDirectoryName(Environment.ProcessPath ?? "") ?? "";
+        string installDir = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "MicFX");
+        return string.Equals(
+            System.IO.Path.TrimEndingDirectorySeparator(exeDir),
+            System.IO.Path.TrimEndingDirectorySeparator(installDir),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task DownloadFileAsync(string url, string dest, Action<double> progress)
+    {
+        using var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("MicFX-Updater");
+        using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+        long total = response.Content.Headers.ContentLength ?? -1;
+
+        await using var source = await response.Content.ReadAsStreamAsync();
+        await using var file = File.Create(dest);
+        var buffer = new byte[81920];
+        long done = 0;
+        int read;
+        while ((read = await source.ReadAsync(buffer)) > 0)
+        {
+            await file.WriteAsync(buffer.AsMemory(0, read));
+            done += read;
+            if (total > 0) progress(done * 100.0 / total);
+        }
+    }
+
+    /// <summary>Removes the leftover .old exe from a previous portable self-update.</summary>
+    private static void CleanUpAfterUpdate()
+    {
+        try
+        {
+            string old = (Environment.ProcessPath ?? "") + ".old";
+            if (File.Exists(old)) File.Delete(old);
+        }
+        catch
+        {
+            // Previous instance may still be exiting — it'll be cleaned next launch.
         }
     }
 
