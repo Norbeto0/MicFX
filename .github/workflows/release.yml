@@ -3,6 +3,12 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+        default: v1.0.0
 
 permissions:
   contents: write
@@ -10,6 +16,8 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,15 +32,18 @@ jobs:
 
       - name: Zip
         shell: pwsh
-        run: Compress-Archive -Path publish\MicFX.exe -DestinationPath "MicFX-${{ github.ref_name }}-win-x64.zip"
+        run: Compress-Archive -Path publish\MicFX.exe -DestinationPath "MicFX-$env:TAG-win-x64.zip"
 
+      # Creates the tag at the built commit if it doesn't exist yet, then the
+      # release with the exe and zip attached.
       - name: Create GitHub release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >
-          gh release create "${{ github.ref_name }}"
-          "MicFX-${{ github.ref_name }}-win-x64.zip"
+          gh release create "$env:TAG"
+          "MicFX-$env:TAG-win-x64.zip"
           "publish/MicFX.exe"
-          --title "MicFX ${{ github.ref_name }}"
+          --title "MicFX $env:TAG"
           --notes-file RELEASE_NOTES.md
+          --target "$env:GITHUB_SHA"
