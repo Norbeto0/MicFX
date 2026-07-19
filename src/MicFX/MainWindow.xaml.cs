@@ -6,6 +6,7 @@ using System.Windows.Media;
 using MicFX.Audio;
 using MicFX.Models;
 using Microsoft.Win32;
+using WinForms = System.Windows.Forms;
 
 namespace MicFX;
 
@@ -34,7 +35,10 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<SoundTile> sounds = new();
     private readonly List<Slider> eqSliders = new();
     private HotkeyManager? hotkeys;
+    private WinForms.NotifyIcon? trayIcon;
     private bool initializing = true;
+    private bool reallyExit;
+    private bool trayTipShown;
 
     public MainWindow()
     {
@@ -50,21 +54,74 @@ public partial class MainWindow : Window
 
         PopulateDevices();
         ApplySettingsToUi();
+        try { chkRunOnBoot.IsChecked = StartupManager.IsEnabled(); } catch { }
         initializing = false;
 
-        Loaded += (_, _) =>
+        // Everything below must not depend on the window being visible —
+        // with --minimized (run on boot) the window starts hidden in the tray.
+        CreateTrayIcon();
+        hotkeys = new HotkeyManager(this);
+        hotkeys.SlotPressed += index => Dispatcher.BeginInvoke(() => PlaySlot(index));
+        TryAutoStart();
+
+        Closing += (_, e) =>
         {
-            hotkeys = new HotkeyManager(this);
-            hotkeys.SlotPressed += index => Dispatcher.BeginInvoke(() => PlaySlot(index));
-            TryAutoStart();
-        };
-        Closing += (_, _) =>
-        {
+            if (!reallyExit)
+            {
+                e.Cancel = true;
+                Hide();
+                if (!trayTipShown && trayIcon != null)
+                {
+                    trayIcon.ShowBalloonTip(2500, "MicFX is still running",
+                        "Your mic keeps processing in the background. Right-click the tray icon to exit.",
+                        WinForms.ToolTipIcon.Info);
+                    trayTipShown = true;
+                }
+                return;
+            }
             CollectSettings();
             settings.Save();
             hotkeys?.Dispose();
             engine.Dispose();
+            if (trayIcon != null)
+            {
+                trayIcon.Visible = false;
+                trayIcon.Dispose();
+            }
         };
+    }
+
+    private void CreateTrayIcon()
+    {
+        using var iconStream =
+            Application.GetResourceStream(new Uri("pack://application:,,,/Assets/micfx.ico"))!.Stream;
+        trayIcon = new WinForms.NotifyIcon
+        {
+            Icon = new System.Drawing.Icon(iconStream),
+            Visible = true,
+            Text = "MicFX — mic effects"
+        };
+        trayIcon.DoubleClick += (_, _) => ShowFromTray();
+
+        var menu = new WinForms.ContextMenuStrip();
+        menu.Items.Add("Open MicFX", null, (_, _) => ShowFromTray());
+        menu.Items.Add(new WinForms.ToolStripSeparator());
+        menu.Items.Add("Exit", null, (_, _) => ForceExit());
+        trayIcon.ContextMenuStrip = menu;
+    }
+
+    private void ShowFromTray()
+    {
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+    }
+
+    /// <summary>Bypasses close-to-tray and really shuts the app down.</summary>
+    public void ForceExit()
+    {
+        reallyExit = true;
+        Close();
     }
 
     // ---------- setup ----------
@@ -293,6 +350,22 @@ public partial class MainWindow : Window
     }
 
     private void RefreshDevices_Click(object sender, RoutedEventArgs e) => PopulateDevices();
+
+    private void RunOnBoot_Changed(object sender, RoutedEventArgs e)
+    {
+        if (initializing) return;
+        try
+        {
+            StartupManager.SetEnabled(chkRunOnBoot.IsChecked == true);
+            txtStatus.Text = chkRunOnBoot.IsChecked == true
+                ? "MicFX will start minimized when you sign in to Windows."
+                : "Removed from Windows startup.";
+        }
+        catch (Exception ex)
+        {
+            txtStatus.Text = "Startup setting error: " + ex.Message;
+        }
+    }
 
     private void Device_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {

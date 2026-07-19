@@ -22,6 +22,8 @@ Microphone → Mic gain → Noise gate → 10-band EQ → Voice effect
   hotkeys **Ctrl+Alt+1…9**, per-board volume, Stop All
 - 🎧 **Self-monitoring** ("listen to myself") on a separate device
 - 📈 Live input/output level meters, mic gain & master volume
+- 🖥 **Close-to-tray**: clicking ✕ minimizes MicFX to the system tray (exit via the tray icon)
+- 🚀 **Run on Windows startup** (optional) — starts minimized in the tray
 - 💾 All settings persisted in `%APPDATA%\MicFX\settings.json`
 
 The full product spec this app was built from is in [SPEC.md](SPEC.md).
@@ -46,17 +48,17 @@ route it through a free virtual cable:
 
 ## 2. Run MicFX
 
-1. Install the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)
-   (not needed if you use the self-contained build, see below).
-2. Build & run:
+**Easiest:** download `MicFX.exe` from the
+[Releases page](../../releases) — it's self-contained, no .NET install needed.
+(The exe is unsigned, so SmartScreen may warn on first run: **More info → Run anyway**.)
 
-   ```
-   dotnet run --project src/MicFX
-   ```
+Or build from source with the .NET 8 SDK:
 
-   or double-click the published `MicFX.exe`.
+```
+dotnet run --project src/MicFX
+```
 
-3. In MicFX:
+Then in MicFX:
    - **Microphone** → your real mic
    - **Output** → **CABLE Input (VB-Audio Virtual Cable)**
    - **Monitor** → your headphones, tick *Listen to myself* to hear the effects

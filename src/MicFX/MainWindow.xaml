@@ -87,6 +87,16 @@
                                 ValueChanged="Master_Changed" Margin="0,2,0,0"/>
                     </StackPanel>
                 </GroupBox>
+
+                <GroupBox Header="APP">
+                    <StackPanel>
+                        <CheckBox x:Name="chkRunOnBoot" Content="Run on Windows startup"
+                                  Checked="RunOnBoot_Changed" Unchecked="RunOnBoot_Changed"/>
+                        <TextBlock Text="Closing the window minimizes MicFX to the tray — exit via the tray icon."
+                                   FontSize="11" Foreground="{StaticResource SubtleTextBrush}"
+                                   TextWrapping="Wrap" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </GroupBox>
             </StackPanel>
 
             <!-- Voice effects -->

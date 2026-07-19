@@ -4,6 +4,9 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <!-- WinForms is referenced only for NotifyIcon (system tray). -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>Assets/micfx.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>MicFX</AssemblyName>
@@ -14,6 +17,16 @@
 
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Keep the WinForms implicit usings out of the WPF code (Button/MessageBox/etc. would clash). -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets/micfx.ico" />
   </ItemGroup>
 
 </Project>
