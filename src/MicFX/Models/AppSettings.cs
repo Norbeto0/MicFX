@@ -53,6 +53,7 @@ public class AppSettings
     public List<Profile> Profiles { get; set; } = new();
     public string? ActiveProfile { get; set; }
     public bool CableNoticeDismissed { get; set; }
+    public bool ShowVoiceEffects { get; set; }
 
     private static string SettingsDir =>
         System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MicFX");

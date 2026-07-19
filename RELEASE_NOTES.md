@@ -1,7 +1,4 @@
-## MicFX v1.1 — the big one
-
-One mic in, one output out — EQ, noise suppression, voice effects and a
-soundboard, in the spirit of Voicemod / SteelSeries Sonar's mic channel.
+## MicFX v1.2 — cleaner default layout
 
 ### Download
 
@@ -12,20 +9,18 @@ soundboard, in the spirit of Voicemod / SteelSeries Sonar's mic channel.
 > ⚠ Unsigned — Windows SmartScreen may warn on first run:
 > click **More info → Run anyway**.
 
-### New in v1.1
+### Changed in v1.2
 
-- 🧹 **Noise suppression** — spectral denoiser removes steady background noise
-  (fans, AC, hum) while you talk, with adjustable strength (6–30 dB)
-- 🎯 **Voice leveler** — broadcast-style compressor with auto make-up gain
-- 👽 **4 new voice effects**: Megaphone, Alien (flanger), Whisper, Ghost (reverse echo)
-- 📊 **Live spectrum visualizer** behind the EQ sliders
-- 👤 **Profiles** — save/switch whole sound setups from the app or the tray menu
-- 🔊 **Soundboard upgrades**: per-clip volume, custom global hotkeys, loop mode
-  (click the tile again to stop), headphones-only preview — right-click a tile → Edit
-- 🧭 **Guided first-run setup** — detects a missing VB-Cable and walks you through it,
-  auto-selects CABLE Input when found
-- 🔔 **Update check** — tells you in-app when a newer release is out
-- 📦 **Installer** — proper setup exe with uninstaller
+- 🧩 The **voice effects panel is now hidden by default** — the main window
+  focuses on devices, clean-up, EQ and the soundboard.
+- ⚙ New **SETTINGS** section (left column) with a **"Show voice effects panel"**
+  toggle. Hiding the panel switches the active effect back to *None*, so your
+  voice can never be secretly stuck on an effect; applying a profile that uses
+  an effect automatically brings the panel back.
+
+Everything from v1.1 is included: spectral noise suppression, voice leveler,
+9 voice effects, profiles, spectrum visualizer, soundboard with per-clip
+volume/hotkeys/loop/preview, guided VB-Cable setup, update check, installer.
 
 ### Setup (one time)
 

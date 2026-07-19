@@ -301,10 +301,15 @@ public partial class MainWindow : Window
         sliderComp.Value = settings.CompressorAmount;
         chkMonitor.IsChecked = settings.MonitorEnabled;
         sliderIntensity.Value = settings.EffectIntensity;
+        chkShowEffects.IsChecked = settings.ShowVoiceEffects;
+        ApplyEffectsPanelVisibility();
 
         for (int i = 0; i < eqSliders.Count && i < settings.EqGainsDb.Length; i++)
             eqSliders[i].Value = settings.EqGainsDb[i];
 
+        // With the panel hidden there must be no invisible active effect.
+        if (!settings.ShowVoiceEffects)
+            settings.Effect = "None";
         SelectEffect(settings.Effect);
 
         foreach (var clip in settings.Sounds)
@@ -365,6 +370,7 @@ public partial class MainWindow : Window
         settings.CompressorAmount = (float)sliderComp.Value;
         settings.Effect = CurrentEffectTag();
         settings.EffectIntensity = (int)sliderIntensity.Value;
+        settings.ShowVoiceEffects = chkShowEffects.IsChecked == true;
         settings.ActiveProfile = comboProfile.SelectedItem as string;
         settings.Sounds = sounds
             .Select(s => new SoundClipSetting
@@ -634,6 +640,9 @@ public partial class MainWindow : Window
         for (int i = 0; i < eqSliders.Count && i < p.EqGainsDb.Length; i++)
             eqSliders[i].Value = p.EqGainsDb[i];
         sliderIntensity.Value = p.EffectIntensity;
+        // A profile that uses an effect brings the panel back so the change is visible.
+        if (p.Effect != "None" && chkShowEffects.IsChecked != true)
+            chkShowEffects.IsChecked = true;
         SelectEffect(p.Effect);
         txtStatus.Text = $"Profile \"{p.Name}\" applied.";
     }
@@ -696,6 +705,21 @@ public partial class MainWindow : Window
     }
 
     private void RefreshDevices_Click(object sender, RoutedEventArgs e) => PopulateDevices();
+
+    private void ApplyEffectsPanelVisibility() =>
+        effectsPanel.Visibility = chkShowEffects.IsChecked == true
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    private void ShowEffects_Changed(object sender, RoutedEventArgs e)
+    {
+        if (initializing) return;
+        settings.ShowVoiceEffects = chkShowEffects.IsChecked == true;
+        ApplyEffectsPanelVisibility();
+        // Never leave an invisible effect coloring the voice.
+        if (chkShowEffects.IsChecked != true && CurrentEffectTag() != "None")
+            SelectEffect("None");
+    }
 
     private void RunOnBoot_Changed(object sender, RoutedEventArgs e)
     {

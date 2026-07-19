@@ -54,7 +54,7 @@
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="310"/>
-                <ColumnDefinition Width="230"/>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
@@ -136,9 +136,12 @@
                         </StackPanel>
                     </GroupBox>
 
-                    <GroupBox Header="APP">
+                    <GroupBox Header="SETTINGS">
                         <StackPanel>
-                            <CheckBox x:Name="chkRunOnBoot" Content="Run on Windows startup"
+                            <CheckBox x:Name="chkShowEffects" Content="Show voice effects panel"
+                                      Checked="ShowEffects_Changed" Unchecked="ShowEffects_Changed"
+                                      ToolTip="Hiding the panel also switches the effect back to None"/>
+                            <CheckBox x:Name="chkRunOnBoot" Content="Run on Windows startup" Margin="0,6,0,0"
                                       Checked="RunOnBoot_Changed" Unchecked="RunOnBoot_Changed"/>
                             <TextBlock Text="Closing the window minimizes MicFX to the tray — exit via the tray icon."
                                        FontSize="11" Foreground="{StaticResource SubtleTextBrush}"
@@ -148,8 +151,9 @@
                 </StackPanel>
             </ScrollViewer>
 
-            <!-- Voice effects -->
-            <GroupBox Grid.Column="1" Header="VOICE EFFECT" Margin="0,0,10,0">
+            <!-- Voice effects (hidden by default — toggle in SETTINGS) -->
+            <GroupBox x:Name="effectsPanel" Grid.Column="1" Header="VOICE EFFECT"
+                      Width="230" Margin="0,0,10,0" Visibility="Collapsed">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
                         <DockPanel>
