@@ -34,4 +34,12 @@ public static class AudioDevices
             ? enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia).ID
             : null;
     }
+
+    public static string? GetDefaultCaptureDeviceId()
+    {
+        var enumerator = new MMDeviceEnumerator();
+        return enumerator.HasDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia)
+            ? enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia).ID
+            : null;
+    }
 }

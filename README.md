@@ -13,17 +13,24 @@ Microphone → Mic gain → Noise gate → 10-band EQ → Voice effect
 
 **Features**
 
-- 🎚 **10-band EQ** (31 Hz – 16 kHz, ±15 dB) with presets: Flat, Warm Broadcast,
-  Bright & Clear, Cut The Mud, Bass Boost
+- 🧹 **Noise suppression** — spectral (STFT) denoiser that removes steady
+  background noise (fans, AC, hum) *while you talk*, with adjustable strength
+- 🎯 **Voice leveler** — broadcast-style compressor with auto make-up gain
+- 🎚 **10-band EQ** (31 Hz – 16 kHz, ±15 dB) with presets and a **live spectrum
+  visualizer** behind the sliders
 - 🚪 **Noise gate** with adjustable threshold, fast attack / smooth release
-- 🤖 **Voice effects**: Robot (ring modulator), Female, Deep Male, Chipmunk,
-  Cave Echo — each with an intensity slider, switchable live
-- 🔊 **Soundboard**: play wav/mp3/m4a/wma clips *into your mic signal*, global
-  hotkeys **Ctrl+Alt+1…9**, per-board volume, Stop All
+- 🤖 **Voice effects**: Robot, Female, Deep Male, Chipmunk, Cave Echo,
+  Megaphone, Alien (flanger), Whisper, Ghost (reverse echo) — each with an
+  intensity slider, switchable live
+- 🔊 **Soundboard**: play wav/mp3/m4a/wma clips *into your mic signal*;
+  global hotkeys (Ctrl+Alt+1…9 by default, customizable per clip), per-clip
+  volume, loop mode, headphones-only preview, Stop All
+- 👤 **Profiles**: save/switch whole sound setups from the app or the tray menu
 - 🎧 **Self-monitoring** ("listen to myself") on a separate device
 - 📈 Live input/output level meters, mic gain & master volume
 - 🖥 **Close-to-tray**: clicking ✕ minimizes MicFX to the system tray (exit via the tray icon)
 - 🚀 **Run on Windows startup** (optional) — starts minimized in the tray
+- 🔔 **Update check** against GitHub releases; guided first-run VB-Cable setup
 - 💾 All settings persisted in `%APPDATA%\MicFX\settings.json`
 
 The full product spec this app was built from is in [SPEC.md](SPEC.md).
@@ -48,9 +55,10 @@ route it through a free virtual cable:
 
 ## 2. Run MicFX
 
-**Easiest:** download `MicFX.exe` from the
-[Releases page](../../releases) — it's self-contained, no .NET install needed.
-(The exe is unsigned, so SmartScreen may warn on first run: **More info → Run anyway**.)
+**Easiest:** download `MicFX-Setup-….exe` (installer, with Start-Menu entry and
+uninstaller) or the portable `MicFX.exe` from the
+[Releases page](../../releases) — both are self-contained, no .NET install needed.
+(They are unsigned, so SmartScreen may warn on first run: **More info → Run anyway**.)
 
 Or build from source with the .NET 8 SDK:
 
@@ -103,15 +111,24 @@ src/MicFX/
   Audio/
     AudioEngine.cs               the whole real-time graph, start/stop, live parameters
     AudioDevices.cs              WASAPI endpoint enumeration
-    EqualizerSampleProvider.cs   10-band biquad peaking EQ
+    NoiseSuppressionSampleProvider.cs  spectral (STFT) denoiser
     NoiseGateSampleProvider.cs   envelope-follower downward gate
+    CompressorSampleProvider.cs  voice leveler with auto make-up
+    EqualizerSampleProvider.cs   10-band biquad peaking EQ
+    SpectrumTapSampleProvider.cs rolling sample window for the spectrum display
     RingModulatorSampleProvider.cs  robot voice
+    MegaphoneSampleProvider.cs   bandpass + drive distortion
+    FlangerSampleProvider.cs     alien voice (swept delay)
+    WhisperSampleProvider.cs     envelope-modulated noise voice
+    GhostSampleProvider.cs       reverse echo
     EchoSampleProvider.cs        cave echo (feedback delay)
     TeeSampleProvider.cs         split-off for self-monitoring
-  Models/AppSettings.cs          JSON persistence (%APPDATA%\MicFX)
-  HotkeyManager.cs               global Ctrl+Alt+1…9 hotkeys
-  MainWindow.xaml(.cs)           UI: devices, EQ, effects, soundboard
+  Models/AppSettings.cs          JSON persistence, profiles (%APPDATA%\MicFX)
+  HotkeyManager.cs               global hotkey registration
+  MainWindow.xaml(.cs)           UI: devices, EQ, effects, soundboard, profiles
+  EditSoundWindow.xaml(.cs)      per-clip editor (volume, loop, hotkey, preview)
   App.xaml                       dark theme
+installer/MicFX.iss              Inno Setup script (built in CI)
 ```
 
 ## License / credits

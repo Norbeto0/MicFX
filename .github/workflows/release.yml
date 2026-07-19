@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v1.0.0)'
+        description: 'Release tag (e.g. v1.1.0)'
         required: true
-        default: v1.0.0
+        default: v1.1.0
 
 permissions:
   contents: write
@@ -34,14 +34,22 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path publish\MicFX.exe -DestinationPath "MicFX-$env:TAG-win-x64.zip"
 
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = $env:TAG.TrimStart('v')
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" installer\MicFX.iss
+          Move-Item installer\Output\MicFX-Setup.exe "MicFX-Setup-$env:TAG.exe"
+
       # Creates the tag at the built commit if it doesn't exist yet, then the
-      # release with the exe and zip attached.
+      # release with the installer, exe and zip attached.
       - name: Create GitHub release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >
           gh release create "$env:TAG"
+          "MicFX-Setup-$env:TAG.exe"
           "MicFX-$env:TAG-win-x64.zip"
           "publish/MicFX.exe"
           --title "MicFX $env:TAG"

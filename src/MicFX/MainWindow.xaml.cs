@@ -1,11 +1,17 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
+using System.Reflection;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 using MicFX.Audio;
 using MicFX.Models;
 using Microsoft.Win32;
+using NAudio.Dsp;
 using WinForms = System.Windows.Forms;
 
 namespace MicFX;
@@ -15,12 +21,22 @@ public class SoundTile
     public string Name { get; set; } = "";
     public string Path { get; set; } = "";
     public float Volume { get; set; } = 1f;
+    public bool Loop { get; set; }
+    public uint HotkeyMods { get; set; }
+    public uint HotkeyVk { get; set; }
+    public string? HotkeyText { get; set; }
     public int Index { get; set; }
-    public string HotkeyLabel => Index < 9 ? $"Ctrl+Alt+{Index + 1}" : "";
+    public bool IsLooping { get; set; }
+
+    public string StatusLabel =>
+        IsLooping ? "⟳ looping — click to stop"
+        : HotkeyText ?? (Index < 9 ? $"Ctrl+Alt+{Index + 1}" : "");
 }
 
 public partial class MainWindow : Window
 {
+    private const string RepoSlug = "Norbeto0/Main";
+
     private static readonly Dictionary<string, float[]> EqPresets = new()
     {
         ["Flat"] = new float[10],
@@ -34,18 +50,31 @@ public partial class MainWindow : Window
     private readonly AppSettings settings = AppSettings.Load();
     private readonly ObservableCollection<SoundTile> sounds = new();
     private readonly List<Slider> eqSliders = new();
+    private readonly List<Border> spectrumBars = new();
+    private readonly Dictionary<SoundTile, object> loopingClips = new();
+    private readonly float[] spectrumSamples = new float[SpectrumTapSampleProvider.WindowSize];
+    private readonly Complex[] spectrumFft = new Complex[SpectrumTapSampleProvider.WindowSize];
+
     private HotkeyManager? hotkeys;
     private WinForms.NotifyIcon? trayIcon;
+    private WinForms.ToolStripMenuItem? trayProfilesMenu;
+    private DispatcherTimer? spectrumTimer;
     private bool initializing = true;
+    private bool profilesUpdating;
     private bool reallyExit;
     private bool trayTipShown;
+    private Action? noticeAction;
+    private Action? noticeSecondaryAction;
+    private Action? noticeCloseAction;
 
     public MainWindow()
     {
         InitializeComponent();
         BuildEqSliders();
+        BuildSpectrumBars();
         icSounds.ItemsSource = sounds;
         engine.LevelsAvailable += OnLevels;
+        engine.ClipEnded += OnClipEndedUi;
 
         comboEqPreset.Items.Add("Presets…");
         foreach (var name in EqPresets.Keys)
@@ -61,8 +90,12 @@ public partial class MainWindow : Window
         // with --minimized (run on boot) the window starts hidden in the tray.
         CreateTrayIcon();
         hotkeys = new HotkeyManager(this);
-        hotkeys.SlotPressed += index => Dispatcher.BeginInvoke(() => PlaySlot(index));
+        hotkeys.HotkeyPressed += id => Dispatcher.BeginInvoke(() => PlaySlot(id));
+        RefreshHotkeys();
+        StartSpectrumTimer();
         TryAutoStart();
+        CheckCableSetup();
+        _ = CheckForUpdatesAsync();
 
         Closing += (_, e) =>
         {
@@ -91,6 +124,8 @@ public partial class MainWindow : Window
         };
     }
 
+    // ---------- tray ----------
+
     private void CreateTrayIcon()
     {
         using var iconStream =
@@ -105,9 +140,30 @@ public partial class MainWindow : Window
 
         var menu = new WinForms.ContextMenuStrip();
         menu.Items.Add("Open MicFX", null, (_, _) => ShowFromTray());
+        trayProfilesMenu = new WinForms.ToolStripMenuItem("Profiles");
+        menu.Items.Add(trayProfilesMenu);
         menu.Items.Add(new WinForms.ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ForceExit());
+        menu.Opening += (_, _) => RebuildTrayProfiles();
         trayIcon.ContextMenuStrip = menu;
+    }
+
+    private void RebuildTrayProfiles()
+    {
+        if (trayProfilesMenu == null) return;
+        trayProfilesMenu.DropDownItems.Clear();
+        if (settings.Profiles.Count == 0)
+        {
+            trayProfilesMenu.DropDownItems.Add(
+                new WinForms.ToolStripMenuItem("(no profiles yet)") { Enabled = false });
+            return;
+        }
+        foreach (var profile in settings.Profiles)
+        {
+            string name = profile.Name;
+            trayProfilesMenu.DropDownItems.Add(name, null,
+                (_, _) => Dispatcher.BeginInvoke(() => comboProfile.SelectedItem = name));
+        }
     }
 
     private void ShowFromTray()
@@ -175,6 +231,24 @@ public partial class MainWindow : Window
         }
     }
 
+    private void BuildSpectrumBars()
+    {
+        for (int i = 0; i < EqualizerSampleProvider.Frequencies.Length; i++)
+        {
+            var bar = new Border
+            {
+                Background = (Brush)FindResource("AccentBrush"),
+                Opacity = 0.22,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(12, 0, 12, 0),
+                CornerRadius = new CornerRadius(2, 2, 0, 0),
+                Height = 2
+            };
+            spectrumPanel.Children.Add(bar);
+            spectrumBars.Add(bar);
+        }
+    }
+
     private void PopulateDevices()
     {
         bool wasInitializing = initializing;
@@ -194,6 +268,9 @@ public partial class MainWindow : Window
         SelectById(comboMic, selectedMic);
         SelectById(comboOutput, selectedOut);
         SelectById(comboMonitor, selectedMon);
+
+        if (comboMic.SelectedItem == null)
+            SelectById(comboMic, AudioDevices.GetDefaultCaptureDeviceId());
 
         initializing = wasInitializing;
     }
@@ -218,33 +295,57 @@ public partial class MainWindow : Window
         sliderSoundVol.Value = settings.SoundboardVolume;
         chkGate.IsChecked = settings.GateEnabled;
         sliderGate.Value = settings.GateThresholdDb;
+        chkDenoise.IsChecked = settings.DenoiseEnabled;
+        sliderDenoise.Value = settings.DenoiseStrengthDb;
+        chkComp.IsChecked = settings.CompressorEnabled;
+        sliderComp.Value = settings.CompressorAmount;
         chkMonitor.IsChecked = settings.MonitorEnabled;
         sliderIntensity.Value = settings.EffectIntensity;
 
         for (int i = 0; i < eqSliders.Count && i < settings.EqGainsDb.Length; i++)
             eqSliders[i].Value = settings.EqGainsDb[i];
 
-        foreach (ListBoxItem item in lstEffects.Items)
-        {
-            if ((string)item.Tag == settings.Effect)
-            {
-                item.IsSelected = true;
-                break;
-            }
-        }
+        SelectEffect(settings.Effect);
 
         foreach (var clip in settings.Sounds)
-            sounds.Add(new SoundTile { Name = clip.Name, Path = clip.Path, Volume = clip.Volume });
+        {
+            sounds.Add(new SoundTile
+            {
+                Name = clip.Name,
+                Path = clip.Path,
+                Volume = clip.Volume,
+                Loop = clip.Loop,
+                HotkeyMods = clip.HotkeyMods,
+                HotkeyVk = clip.HotkeyVk,
+                HotkeyText = clip.HotkeyText
+            });
+        }
         RefreshTileIndexes();
+
+        PopulateProfilesCombo(settings.ActiveProfile);
 
         // Push restored values into the engine so they apply on Start().
         engine.SetMicGain(settings.MicGain);
         engine.SetMasterVolume(settings.MasterVolume);
         engine.SetSoundboardVolume(settings.SoundboardVolume);
         engine.SetGate(settings.GateEnabled, settings.GateThresholdDb);
+        engine.SetDenoise(settings.DenoiseEnabled, settings.DenoiseStrengthDb);
+        engine.SetCompressor(settings.CompressorEnabled, settings.CompressorAmount);
         for (int i = 0; i < settings.EqGainsDb.Length && i < eqSliders.Count; i++)
             engine.SetEqGain(i, settings.EqGainsDb[i]);
         engine.SetEffect(settings.Effect, settings.EffectIntensity);
+    }
+
+    private void SelectEffect(string tag)
+    {
+        foreach (ListBoxItem item in lstEffects.Items)
+        {
+            if ((string)item.Tag == tag)
+            {
+                item.IsSelected = true;
+                return;
+            }
+        }
     }
 
     private void CollectSettings()
@@ -258,10 +359,24 @@ public partial class MainWindow : Window
         settings.SoundboardVolume = (float)sliderSoundVol.Value;
         settings.GateEnabled = chkGate.IsChecked == true;
         settings.GateThresholdDb = (float)sliderGate.Value;
+        settings.DenoiseEnabled = chkDenoise.IsChecked == true;
+        settings.DenoiseStrengthDb = (float)sliderDenoise.Value;
+        settings.CompressorEnabled = chkComp.IsChecked == true;
+        settings.CompressorAmount = (float)sliderComp.Value;
         settings.Effect = CurrentEffectTag();
         settings.EffectIntensity = (int)sliderIntensity.Value;
+        settings.ActiveProfile = comboProfile.SelectedItem as string;
         settings.Sounds = sounds
-            .Select(s => new SoundClipSetting { Name = s.Name, Path = s.Path, Volume = s.Volume })
+            .Select(s => new SoundClipSetting
+            {
+                Name = s.Name,
+                Path = s.Path,
+                Volume = s.Volume,
+                Loop = s.Loop,
+                HotkeyMods = s.HotkeyMods,
+                HotkeyVk = s.HotkeyVk,
+                HotkeyText = s.HotkeyText
+            })
             .ToList();
     }
 
@@ -341,6 +456,237 @@ public partial class MainWindow : Window
     private string CurrentEffectTag() =>
         (lstEffects.SelectedItem as ListBoxItem)?.Tag as string ?? "None";
 
+    // ---------- spectrum ----------
+
+    private void StartSpectrumTimer()
+    {
+        spectrumTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(66) };
+        spectrumTimer.Tick += (_, _) => UpdateSpectrum();
+        spectrumTimer.Start();
+    }
+
+    private void UpdateSpectrum()
+    {
+        if (!IsVisible) return;
+        if (!engine.CopySpectrumSamples(spectrumSamples))
+        {
+            foreach (var bar in spectrumBars) bar.Height = 2;
+            return;
+        }
+
+        int n = SpectrumTapSampleProvider.WindowSize;
+        for (int i = 0; i < n; i++)
+        {
+            spectrumFft[i].X = spectrumSamples[i] * (float)FastFourierTransform.HannWindow(i, n);
+            spectrumFft[i].Y = 0f;
+        }
+        FastFourierTransform.FFT(true, 11, spectrumFft);
+
+        double maxHeight = Math.Max(spectrumPanel.ActualHeight - 4, 10);
+        for (int b = 0; b < spectrumBars.Count; b++)
+        {
+            float f = EqualizerSampleProvider.Frequencies[b];
+            int lo = Math.Max(1, (int)(f / 1.5f * n / AudioEngine.SampleRate));
+            int hi = Math.Min(n / 2 - 1, Math.Max(lo + 1, (int)(f * 1.5f * n / AudioEngine.SampleRate)));
+            float sum = 0f;
+            for (int i = lo; i <= hi; i++)
+                sum += MathF.Sqrt(spectrumFft[i].X * spectrumFft[i].X + spectrumFft[i].Y * spectrumFft[i].Y);
+            float avg = sum / (hi - lo + 1);
+            float db = 20f * MathF.Log10(avg + 1e-9f);
+            double t = Math.Clamp((db + 65) / 60.0, 0, 1);
+            spectrumBars[b].Height = Math.Max(2, t * maxHeight);
+        }
+    }
+
+    // ---------- notices (VB-Cable setup, updates) ----------
+
+    private void ShowNotice(string text, string? actionText, Action? action,
+        string? secondaryText = null, Action? secondary = null, Action? onClose = null)
+    {
+        txtNotice.Text = text;
+        noticeAction = action;
+        noticeSecondaryAction = secondary;
+        noticeCloseAction = onClose;
+        btnNoticeAction.Content = actionText;
+        btnNoticeAction.Visibility = actionText != null ? Visibility.Visible : Visibility.Collapsed;
+        btnNoticeSecondary.Content = secondaryText;
+        btnNoticeSecondary.Visibility = secondaryText != null ? Visibility.Visible : Visibility.Collapsed;
+        noticeBar.Visibility = Visibility.Visible;
+    }
+
+    private void HideNotice() => noticeBar.Visibility = Visibility.Collapsed;
+
+    private void NoticeAction_Click(object sender, RoutedEventArgs e) => noticeAction?.Invoke();
+
+    private void NoticeSecondary_Click(object sender, RoutedEventArgs e) => noticeSecondaryAction?.Invoke();
+
+    private void NoticeClose_Click(object sender, RoutedEventArgs e)
+    {
+        noticeCloseAction?.Invoke();
+        HideNotice();
+    }
+
+    private void CheckCableSetup()
+    {
+        var cable = comboOutput.Items.Cast<AudioDeviceInfo>()
+            .FirstOrDefault(d => d.Name.Contains("CABLE Input", StringComparison.OrdinalIgnoreCase));
+
+        if (cable != null)
+        {
+            if (comboOutput.SelectedItem == null)
+            {
+                SelectById(comboOutput, cable.Id);
+                TryAutoStart();
+            }
+            return;
+        }
+
+        if (settings.CableNoticeDismissed) return;
+
+        ShowNotice(
+            "No virtual cable found. MicFX needs one so Discord/OBS can use the processed mic — " +
+            "install the free VB-Audio Cable (run as admin, then reboot).",
+            "Get VB-Cable", () => OpenUrl("https://vb-audio.com/Cable/"),
+            "Re-check", () =>
+            {
+                PopulateDevices();
+                var found = comboOutput.Items.Cast<AudioDeviceInfo>()
+                    .FirstOrDefault(d => d.Name.Contains("CABLE Input", StringComparison.OrdinalIgnoreCase));
+                if (found != null)
+                {
+                    SelectById(comboOutput, found.Id);
+                    HideNotice();
+                    txtStatus.Text = "Virtual cable found and selected as output.";
+                    TryAutoStart();
+                }
+            },
+            onClose: () => settings.CableNoticeDismissed = true);
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("MicFX-Updater");
+            string json = await http.GetStringAsync(
+                $"https://api.github.com/repos/{RepoSlug}/releases/latest");
+            using var doc = JsonDocument.Parse(json);
+            string? tag = doc.RootElement.GetProperty("tag_name").GetString();
+            string? url = doc.RootElement.GetProperty("html_url").GetString();
+            if (tag == null || url == null) return;
+
+            var latest = Version.Parse(tag.TrimStart('v', 'V'));
+            var asm = Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
+            var current = new Version(asm.Major, asm.Minor, asm.Build);
+            if (latest > current && noticeBar.Visibility != Visibility.Visible)
+                ShowNotice($"MicFX {tag} is available (you have v{current}).",
+                    "Download", () => OpenUrl(url));
+        }
+        catch
+        {
+            // Offline, rate-limited or private repo — stay quiet.
+        }
+    }
+
+    private static void OpenUrl(string url) =>
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+
+    // ---------- profiles ----------
+
+    private void PopulateProfilesCombo(string? select)
+    {
+        profilesUpdating = true;
+        comboProfile.Items.Clear();
+        foreach (var profile in settings.Profiles)
+            comboProfile.Items.Add(profile.Name);
+        if (select != null && comboProfile.Items.Contains(select))
+            comboProfile.SelectedItem = select;
+        profilesUpdating = false;
+    }
+
+    private Profile CaptureProfile(string name) => new()
+    {
+        Name = name,
+        MicGain = (float)sliderMicGain.Value,
+        MasterVolume = (float)sliderMaster.Value,
+        GateEnabled = chkGate.IsChecked == true,
+        GateThresholdDb = (float)sliderGate.Value,
+        DenoiseEnabled = chkDenoise.IsChecked == true,
+        DenoiseStrengthDb = (float)sliderDenoise.Value,
+        CompressorEnabled = chkComp.IsChecked == true,
+        CompressorAmount = (float)sliderComp.Value,
+        EqGainsDb = eqSliders.Select(s => (float)s.Value).ToArray(),
+        Effect = CurrentEffectTag(),
+        EffectIntensity = (int)sliderIntensity.Value,
+    };
+
+    private void ApplyProfile(Profile p)
+    {
+        sliderMicGain.Value = p.MicGain;
+        sliderMaster.Value = p.MasterVolume;
+        chkGate.IsChecked = p.GateEnabled;
+        sliderGate.Value = p.GateThresholdDb;
+        chkDenoise.IsChecked = p.DenoiseEnabled;
+        sliderDenoise.Value = p.DenoiseStrengthDb;
+        chkComp.IsChecked = p.CompressorEnabled;
+        sliderComp.Value = p.CompressorAmount;
+        for (int i = 0; i < eqSliders.Count && i < p.EqGainsDb.Length; i++)
+            eqSliders[i].Value = p.EqGainsDb[i];
+        sliderIntensity.Value = p.EffectIntensity;
+        SelectEffect(p.Effect);
+        txtStatus.Text = $"Profile \"{p.Name}\" applied.";
+    }
+
+    private void Profile_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (initializing || profilesUpdating) return;
+        if (comboProfile.SelectedItem is not string name) return;
+        var profile = settings.Profiles.FirstOrDefault(p => p.Name == name);
+        if (profile != null) ApplyProfile(profile);
+    }
+
+    private void SaveProfile_Click(object sender, RoutedEventArgs e)
+    {
+        if (comboProfile.SelectedItem is not string name)
+        {
+            NewProfile_Click(sender, e);
+            return;
+        }
+        int index = settings.Profiles.FindIndex(p => p.Name == name);
+        if (index >= 0)
+        {
+            settings.Profiles[index] = CaptureProfile(name);
+            settings.Save();
+            txtStatus.Text = $"Profile \"{name}\" saved.";
+        }
+    }
+
+    private void NewProfile_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new InputDialog(this, "New profile", "Profile name:",
+            $"Profile {settings.Profiles.Count + 1}");
+        if (dialog.ShowDialog() != true) return;
+
+        string name = dialog.Value;
+        int existing = settings.Profiles.FindIndex(p => p.Name == name);
+        var profile = CaptureProfile(name);
+        if (existing >= 0) settings.Profiles[existing] = profile;
+        else settings.Profiles.Add(profile);
+        settings.Save();
+        PopulateProfilesCombo(name);
+        txtStatus.Text = $"Profile \"{name}\" saved.";
+    }
+
+    private void DeleteProfile_Click(object sender, RoutedEventArgs e)
+    {
+        if (comboProfile.SelectedItem is not string name) return;
+        settings.Profiles.RemoveAll(p => p.Name == name);
+        settings.Save();
+        PopulateProfilesCombo(null);
+        txtStatus.Text = $"Profile \"{name}\" deleted.";
+    }
+
     // ---------- UI event handlers ----------
 
     private void StartStop_Click(object sender, RoutedEventArgs e)
@@ -406,6 +752,20 @@ public partial class MainWindow : Window
         engine.SetGate(chkGate.IsChecked == true, (float)sliderGate.Value);
     }
 
+    private void Denoise_Changed(object sender, RoutedEventArgs e)
+    {
+        if (lblDenoise != null) lblDenoise.Text = $"{sliderDenoise.Value:0} dB";
+        if (initializing) return;
+        engine.SetDenoise(chkDenoise.IsChecked == true, (float)sliderDenoise.Value);
+    }
+
+    private void Comp_Changed(object sender, RoutedEventArgs e)
+    {
+        if (lblComp != null) lblComp.Text = $"{sliderComp.Value:0}";
+        if (initializing) return;
+        engine.SetCompressor(chkComp.IsChecked == true, (float)sliderComp.Value);
+    }
+
     private void Effect_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (initializing) return;
@@ -455,14 +815,59 @@ public partial class MainWindow : Window
             });
         }
         RefreshTileIndexes();
+        RefreshHotkeys();
+    }
+
+    private void EditSound_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as MenuItem)?.Tag is not SoundTile tile) return;
+
+        var dialog = new EditSoundWindow(this, tile.Name, tile.Volume, tile.Loop,
+            tile.HotkeyMods, tile.HotkeyVk, tile.HotkeyText,
+            preview: volume => TryPreview(tile.Path, volume));
+        bool? ok = dialog.ShowDialog();
+        engine.StopPreview();
+        if (ok != true) return;
+
+        tile.Name = dialog.SoundName;
+        tile.Volume = dialog.ClipVolume;
+        tile.Loop = dialog.Loop;
+        tile.HotkeyMods = dialog.HotkeyMods;
+        tile.HotkeyVk = dialog.HotkeyVk;
+        tile.HotkeyText = dialog.HotkeyText;
+        RefreshTileIndexes();
+        RefreshHotkeys();
+    }
+
+    private void TryPreview(string path, float volume)
+    {
+        if (!File.Exists(path))
+        {
+            txtStatus.Text = $"File not found: {path}";
+            return;
+        }
+        try
+        {
+            var device = comboMonitor.SelectedItem is AudioDeviceInfo info
+                ? AudioDevices.GetDevice(info.Id)
+                : null;
+            engine.PreviewClip(path, volume, device);
+        }
+        catch (Exception ex)
+        {
+            txtStatus.Text = "Preview error: " + ex.Message;
+        }
     }
 
     private void RemoveSound_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as MenuItem)?.Tag is SoundTile tile)
         {
+            if (loopingClips.TryGetValue(tile, out var handle))
+                engine.StopClip(handle);
             sounds.Remove(tile);
             RefreshTileIndexes();
+            RefreshHotkeys();
         }
     }
 
@@ -482,6 +887,13 @@ public partial class MainWindow : Window
 
     private void PlayTile(SoundTile tile)
     {
+        // A looping tile acts as a toggle.
+        if (tile.IsLooping && loopingClips.TryGetValue(tile, out var running))
+        {
+            engine.StopClip(running);
+            return;
+        }
+
         if (!engine.IsRunning)
         {
             txtStatus.Text = "Start the engine to play sounds.";
@@ -494,7 +906,13 @@ public partial class MainWindow : Window
         }
         try
         {
-            engine.PlayClip(tile.Path, tile.Volume);
+            var handle = engine.PlayClip(tile.Path, tile.Volume, tile.Loop);
+            if (tile.Loop && handle != null)
+            {
+                loopingClips[tile] = handle;
+                tile.IsLooping = true;
+                icSounds.Items.Refresh();
+            }
         }
         catch (Exception ex)
         {
@@ -502,10 +920,38 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnClipEndedUi(object handle)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            var entry = loopingClips.FirstOrDefault(kv => ReferenceEquals(kv.Value, handle));
+            if (entry.Key != null)
+            {
+                entry.Key.IsLooping = false;
+                loopingClips.Remove(entry.Key);
+                icSounds.Items.Refresh();
+            }
+        });
+    }
+
     private void RefreshTileIndexes()
     {
         for (int i = 0; i < sounds.Count; i++)
             sounds[i].Index = i;
         icSounds.Items.Refresh();
+    }
+
+    private void RefreshHotkeys()
+    {
+        if (hotkeys == null) return;
+        hotkeys.Clear();
+        for (int i = 0; i < sounds.Count; i++)
+        {
+            var tile = sounds[i];
+            if (tile.HotkeyVk != 0)
+                hotkeys.Register(i, tile.HotkeyMods, tile.HotkeyVk);
+            else if (i < 9)
+                hotkeys.Register(i, HotkeyManager.ModControl | HotkeyManager.ModAlt, (uint)('1' + i));
+        }
     }
 }

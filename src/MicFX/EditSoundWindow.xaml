@@ -1,0 +1,47 @@
+<Window x:Class="MicFX.EditSoundWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Edit sound"
+        Width="380" SizeToContent="Height"
+        Background="{StaticResource WindowBrush}"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize" ShowInTaskbar="False">
+    <StackPanel Margin="14">
+        <TextBlock Text="Name" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
+        <TextBox x:Name="txtName"
+                 Background="{StaticResource PanelBrush}"
+                 Foreground="{StaticResource TextBrush}"
+                 BorderBrush="{StaticResource BorderBrush}"
+                 Padding="6,4" Margin="0,2,0,10"/>
+
+        <DockPanel>
+            <TextBlock x:Name="lblVolume" DockPanel.Dock="Right" Text="100%" FontSize="11"
+                       Foreground="{StaticResource SubtleTextBrush}"/>
+            <TextBlock Text="Volume" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
+        </DockPanel>
+        <Slider x:Name="sliderVolume" Minimum="0" Maximum="2" Value="1"
+                ValueChanged="Volume_Changed" Margin="0,2,0,10"/>
+
+        <CheckBox x:Name="chkLoop" Content="Loop until stopped (click the tile again to stop)"
+                  Margin="0,0,0,10"/>
+
+        <TextBlock Text="Hotkey — click the box, then press a combination (Esc clears)"
+                   FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
+        <TextBox x:Name="txtHotkey" IsReadOnly="True" Text="(default)"
+                 Background="{StaticResource PanelBrush}"
+                 Foreground="{StaticResource TextBrush}"
+                 BorderBrush="{StaticResource BorderBrush}"
+                 Padding="6,4" Margin="0,2,0,2"
+                 PreviewKeyDown="Hotkey_KeyDown"/>
+        <TextBlock x:Name="lblHotkeyHint" Text="" FontSize="11"
+                   Foreground="{StaticResource SubtleTextBrush}" Margin="0,0,0,10"/>
+
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button Content="OK" Width="80" Style="{StaticResource AccentButton}" Click="Ok_Click" IsDefault="True"/>
+                <Button Content="Cancel" Width="80" Margin="8,0,0,0" IsCancel="True"/>
+            </StackPanel>
+            <Button Content="▶ Preview" Width="90" HorizontalAlignment="Left" Click="Preview_Click"/>
+        </DockPanel>
+    </StackPanel>
+</Window>
