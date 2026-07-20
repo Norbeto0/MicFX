@@ -16,8 +16,8 @@ Microphone → Mic gain → Noise gate → 10-band EQ → Voice effect
 - 🧹 **Noise suppression** — spectral (STFT) denoiser that removes steady
   background noise (fans, AC, hum) *while you talk*, with adjustable strength
 - 🎯 **Voice leveler** — broadcast-style compressor with auto make-up gain
-- 🎚 **10-band EQ** (31 Hz – 16 kHz, ±15 dB) with presets and a **live spectrum
-  visualizer** behind the sliders
+- 🎚 **10–20 band EQ** (31 Hz – 16 kHz, ±15 dB, band count adjustable in ☰
+  settings) with presets and a **live spectrum visualizer** behind the sliders
 - 🚪 **Noise gate** with adjustable threshold, fast attack / smooth release
 - 🤖 **Voice effects**: Robot, Female, Deep Male, Chipmunk, Cave Echo,
   Megaphone, Alien (flanger), Whisper, Ghost (reverse echo) — each with an

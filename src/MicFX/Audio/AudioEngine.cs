@@ -58,7 +58,8 @@ public class AudioEngine : IDisposable
     private float micGain = 1f;
     private float master = 1f;
     private float soundVol = 0.8f;
-    private readonly float[] eqGains = new float[EqualizerSampleProvider.Frequencies.Length];
+    private float[] eqGains = new float[10];
+    private int eqBandCount = 10;
     private bool gateEnabled;
     private float gateThresholdDb = -45f;
     private bool denoiseEnabled;
@@ -112,9 +113,7 @@ public class AudioEngine : IDisposable
         inputMeter.StreamVolume += (_, e) => lastInputDb = ToDb(MaxOf(e.MaxSampleValues));
 
         gate = new NoiseGateSampleProvider(inputMeter) { Enabled = gateEnabled, ThresholdDb = gateThresholdDb };
-        eq = new EqualizerSampleProvider(gate);
-        for (int band = 0; band < eqGains.Length; band++)
-            eq.SetGain(band, eqGains[band]);
+        eq = new EqualizerSampleProvider(gate, eqBandCount, eqGains);
         spectrumTap = new SpectrumTapSampleProvider(eq);
         compressor = new CompressorSampleProvider(spectrumTap) { Enabled = compEnabled };
         compressor.SetAmount(compAmount);
@@ -271,8 +270,17 @@ public class AudioEngine : IDisposable
 
     public void SetEqGain(int band, float db)
     {
+        if (band < 0 || band >= eqGains.Length) return;
         eqGains[band] = db;
         eq?.SetGain(band, db);
+    }
+
+    public void SetEqBands(int count, float[] gains)
+    {
+        eqBandCount = Math.Clamp(count, EqualizerSampleProvider.MinBands, EqualizerSampleProvider.MaxBands);
+        eqGains = new float[eqBandCount];
+        Array.Copy(gains, eqGains, Math.Min(gains.Length, eqGains.Length));
+        eq?.SetBands(eqBandCount, eqGains);
     }
 
     public void SetEffect(string name, int intensity)

@@ -54,6 +54,7 @@ public class AppSettings
     public string? ActiveProfile { get; set; }
     public bool CableNoticeDismissed { get; set; }
     public bool ShowVoiceEffects { get; set; }
+    public int EqBandCount { get; set; } = 10;
 
     private static string SettingsDir =>
         System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MicFX");

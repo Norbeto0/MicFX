@@ -55,6 +55,8 @@ public partial class MainWindow : Window
     private readonly float[] spectrumSamples = new float[SpectrumTapSampleProvider.WindowSize];
     private readonly Complex[] spectrumFft = new Complex[SpectrumTapSampleProvider.WindowSize];
 
+    private float[] eqFrequencies = EqualizerSampleProvider.BuildFrequencies(10);
+    private bool startHeightSet;
     private HotkeyManager? hotkeys;
     private WinForms.NotifyIcon? trayIcon;
     private WinForms.ToolStripMenuItem? trayProfilesMenu;
@@ -78,7 +80,17 @@ public partial class MainWindow : Window
         var version = Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
         Title = $"MicFX v{version.Major}.{version.Minor}.{version.Build} — Mic Effects Station";
         CleanUpAfterUpdate();
-        BuildEqSliders();
+
+        settings.EqBandCount = Math.Clamp(settings.EqBandCount,
+            EqualizerSampleProvider.MinBands, EqualizerSampleProvider.MaxBands);
+        if (settings.EqGainsDb.Length != settings.EqBandCount)
+        {
+            var resized = new float[settings.EqBandCount];
+            Array.Copy(settings.EqGainsDb, resized, Math.Min(settings.EqGainsDb.Length, resized.Length));
+            settings.EqGainsDb = resized;
+        }
+        eqFrequencies = EqualizerSampleProvider.BuildFrequencies(settings.EqBandCount);
+        BuildEqSliders(settings.EqGainsDb);
         BuildSpectrumBars();
         icSounds.ItemsSource = sounds;
         engine.LevelsAvailable += OnLevels;
@@ -106,6 +118,10 @@ public partial class MainWindow : Window
         _ = CheckForUpdatesAsync();
         if (Environment.GetCommandLineArgs().Contains("--updated"))
             txtStatus.Text = $"Updated to v{version.Major}.{version.Minor}.{version.Build} ✓";
+
+        Loaded += (_, _) => UpdateMinHeight();
+        noticeBar.IsVisibleChanged += (_, _) =>
+            Dispatcher.BeginInvoke(UpdateMinHeight, DispatcherPriority.Loaded);
 
         Closing += (_, e) =>
         {
@@ -192,12 +208,35 @@ public partial class MainWindow : Window
 
     // ---------- setup ----------
 
-    private void BuildEqSliders()
+    /// <summary>
+    /// The window's minimum height is whatever the left column actually needs
+    /// (measured, not guessed) — CLEAN-UP can never be cut off. The first
+    /// layout also snaps the window to exactly that height.
+    /// </summary>
+    private void UpdateMinHeight()
     {
-        for (int i = 0; i < EqualizerSampleProvider.Frequencies.Length; i++)
+        if (!IsLoaded || ActualHeight <= 0 || mainArea.ActualHeight <= 0) return;
+        double chrome = ActualHeight - mainArea.ActualHeight;
+        if (chrome <= 0 || double.IsNaN(chrome)) return;
+        double min = Math.Ceiling(leftPanel.DesiredSize.Height + chrome) + 2;
+        MinHeight = min;
+        if (!startHeightSet)
+        {
+            Height = min;
+            startHeightSet = true;
+        }
+        else if (ActualHeight < min)
+        {
+            Height = min;
+        }
+    }
+
+    private void BuildEqSliders(float[]? gains = null)
+    {
+        for (int i = 0; i < eqFrequencies.Length; i++)
         {
             int band = i;
-            float freq = EqualizerSampleProvider.Frequencies[i];
+            float freq = eqFrequencies[i];
 
             var valueLabel = new TextBlock
             {
@@ -225,9 +264,12 @@ public partial class MainWindow : Window
             {
                 valueLabel.Text = $"{e.NewValue:+0.#;-0.#;0} dB";
                 if (initializing) return;
-                settings.EqGainsDb[band] = (float)e.NewValue;
+                if (band < settings.EqGainsDb.Length)
+                    settings.EqGainsDb[band] = (float)e.NewValue;
                 engine.SetEqGain(band, (float)e.NewValue);
             };
+            if (gains != null && i < gains.Length)
+                slider.Value = gains[i];
 
             var panel = new DockPanel { Margin = new Thickness(4, 0, 4, 0) };
             DockPanel.SetDock(valueLabel, Dock.Top);
@@ -243,7 +285,7 @@ public partial class MainWindow : Window
 
     private void BuildSpectrumBars()
     {
-        for (int i = 0; i < EqualizerSampleProvider.Frequencies.Length; i++)
+        for (int i = 0; i < eqFrequencies.Length; i++)
         {
             var bar = new Border
             {
@@ -313,9 +355,8 @@ public partial class MainWindow : Window
         sliderIntensity.Value = settings.EffectIntensity;
         chkShowEffects.IsChecked = settings.ShowVoiceEffects;
         ApplyEffectsPanelVisibility();
-
-        for (int i = 0; i < eqSliders.Count && i < settings.EqGainsDb.Length; i++)
-            eqSliders[i].Value = settings.EqGainsDb[i];
+        sliderEqBands.Value = settings.EqBandCount;
+        lblEqBands.Text = settings.EqBandCount.ToString();
 
         // With the panel hidden there must be no invisible active effect.
         if (!settings.ShowVoiceEffects)
@@ -346,8 +387,7 @@ public partial class MainWindow : Window
         engine.SetGate(settings.GateEnabled, settings.GateThresholdDb);
         engine.SetDenoise(settings.DenoiseEnabled, settings.DenoiseStrengthDb);
         engine.SetCompressor(settings.CompressorEnabled, settings.CompressorAmount);
-        for (int i = 0; i < settings.EqGainsDb.Length && i < eqSliders.Count; i++)
-            engine.SetEqGain(i, settings.EqGainsDb[i]);
+        engine.SetEqBands(settings.EqBandCount, settings.EqGainsDb);
         engine.SetEffect(settings.Effect, settings.EffectIntensity);
     }
 
@@ -381,6 +421,7 @@ public partial class MainWindow : Window
         settings.Effect = CurrentEffectTag();
         settings.EffectIntensity = (int)sliderIntensity.Value;
         settings.ShowVoiceEffects = chkShowEffects.IsChecked == true;
+        settings.EqBandCount = eqFrequencies.Length;
         settings.ActiveProfile = comboProfile.SelectedItem as string;
         settings.Sounds = sounds
             .Select(s => new SoundClipSetting
@@ -499,11 +540,12 @@ public partial class MainWindow : Window
         FastFourierTransform.FFT(true, 11, spectrumFft);
 
         double maxHeight = Math.Max(spectrumPanel.ActualHeight - 4, 10);
-        for (int b = 0; b < spectrumBars.Count; b++)
+        float step = eqFrequencies.Length > 1 ? MathF.Sqrt(eqFrequencies[1] / eqFrequencies[0]) : 1.5f;
+        for (int b = 0; b < spectrumBars.Count && b < eqFrequencies.Length; b++)
         {
-            float f = EqualizerSampleProvider.Frequencies[b];
-            int lo = Math.Max(1, (int)(f / 1.5f * n / AudioEngine.SampleRate));
-            int hi = Math.Min(n / 2 - 1, Math.Max(lo + 1, (int)(f * 1.5f * n / AudioEngine.SampleRate)));
+            float f = eqFrequencies[b];
+            int lo = Math.Max(1, (int)(f / step * n / AudioEngine.SampleRate));
+            int hi = Math.Min(n / 2 - 1, Math.Max(lo + 1, (int)(f * step * n / AudioEngine.SampleRate)));
             float sum = 0f;
             for (int i = lo; i <= hi; i++)
                 sum += MathF.Sqrt(spectrumFft[i].X * spectrumFft[i].X + spectrumFft[i].Y * spectrumFft[i].Y);
@@ -783,8 +825,9 @@ public partial class MainWindow : Window
         sliderDenoise.Value = p.DenoiseStrengthDb;
         chkComp.IsChecked = p.CompressorEnabled;
         sliderComp.Value = p.CompressorAmount;
-        for (int i = 0; i < eqSliders.Count && i < p.EqGainsDb.Length; i++)
-            eqSliders[i].Value = p.EqGainsDb[i];
+        var profileGains = MapGainsToBands(p.EqGainsDb, eqFrequencies);
+        for (int i = 0; i < eqSliders.Count && i < profileGains.Length; i++)
+            eqSliders[i].Value = profileGains[i];
         sliderIntensity.Value = p.EffectIntensity;
         // A profile that uses an effect brings the panel back so the change is visible.
         if (p.Effect != "None" && chkShowEffects.IsChecked != true)
@@ -954,8 +997,64 @@ public partial class MainWindow : Window
         if (initializing) return;
         if (comboEqPreset.SelectedItem is not string name || !EqPresets.TryGetValue(name, out var gains))
             return;
-        for (int i = 0; i < eqSliders.Count && i < gains.Length; i++)
-            eqSliders[i].Value = gains[i];
+        var mapped = MapGainsToBands(gains, eqFrequencies);
+        for (int i = 0; i < eqSliders.Count && i < mapped.Length; i++)
+            eqSliders[i].Value = mapped[i];
+    }
+
+    /// <summary>Re-maps a gain curve onto a different set of band centres (linear in log-frequency).</summary>
+    private static float[] MapGainsToBands(float[] srcGains, float[] dstFreqs)
+    {
+        var srcFreqs = EqualizerSampleProvider.BuildFrequencies(srcGains.Length);
+        if (srcFreqs.Length == dstFreqs.Length) return srcGains;
+        return MapGainsToBandsFrom(srcFreqs, srcGains, dstFreqs);
+    }
+
+    private void EqBands_Changed(object sender, RoutedEventArgs e)
+    {
+        if (lblEqBands != null) lblEqBands.Text = $"{sliderEqBands.Value:0}";
+        if (initializing) return;
+        int count = (int)sliderEqBands.Value;
+        if (count == eqFrequencies.Length) return;
+
+        var newFreqs = EqualizerSampleProvider.BuildFrequencies(count);
+        var newGains = MapGainsToBandsFrom(eqFrequencies, settings.EqGainsDb, newFreqs);
+        eqFrequencies = newFreqs;
+        settings.EqBandCount = count;
+        settings.EqGainsDb = newGains;
+        engine.SetEqBands(count, newGains);
+
+        eqPanel.Children.Clear();
+        eqSliders.Clear();
+        spectrumPanel.Children.Clear();
+        spectrumBars.Clear();
+        BuildEqSliders(newGains);
+        BuildSpectrumBars();
+    }
+
+    private static float[] MapGainsToBandsFrom(float[] srcFreqs, float[] srcGains, float[] dstFreqs)
+    {
+        var result = new float[dstFreqs.Length];
+        for (int i = 0; i < dstFreqs.Length; i++)
+        {
+            double f = Math.Log(dstFreqs[i]);
+            if (srcGains.Length == 0) break;
+            if (f <= Math.Log(srcFreqs[0])) { result[i] = srcGains[0]; continue; }
+            if (f >= Math.Log(srcFreqs[Math.Min(srcGains.Length, srcFreqs.Length) - 1]))
+            {
+                result[i] = srcGains[Math.Min(srcGains.Length, srcFreqs.Length) - 1];
+                continue;
+            }
+            int j = 1;
+            while (j < srcFreqs.Length && Math.Log(srcFreqs[j]) < f) j++;
+            double f0 = Math.Log(srcFreqs[j - 1]);
+            double f1 = Math.Log(srcFreqs[j]);
+            double t = (f - f0) / (f1 - f0);
+            float g0 = srcGains[Math.Min(j - 1, srcGains.Length - 1)];
+            float g1 = srcGains[Math.Min(j, srcGains.Length - 1)];
+            result[i] = (float)(g0 * (1 - t) + g1 * t);
+        }
+        return result;
     }
 
     private void EqReset_Click(object sender, RoutedEventArgs e)

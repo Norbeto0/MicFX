@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="MicFX — Mic Effects Station"
-        Height="890" Width="1160"
-        MinHeight="890" MinWidth="1020"
+        Height="700" Width="1160"
+        MinHeight="620" MinWidth="1020"
         Background="{StaticResource WindowBrush}"
         WindowStartupLocation="CenterScreen">
     <Grid Margin="12">
@@ -52,6 +52,14 @@
                                   ToolTip="Hiding the panel also switches the effect back to None"/>
                         <CheckBox x:Name="chkRunOnBoot" Content="Run on Windows startup" Margin="0,10,0,0"
                                   Checked="RunOnBoot_Changed" Unchecked="RunOnBoot_Changed"/>
+                        <DockPanel Margin="0,12,0,0">
+                            <TextBlock x:Name="lblEqBands" DockPanel.Dock="Right" Text="10" FontSize="11"
+                                       Foreground="{StaticResource SubtleTextBrush}"/>
+                            <TextBlock Text="EQ bands" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
+                        </DockPanel>
+                        <Slider x:Name="sliderEqBands" Minimum="10" Maximum="20" Value="10"
+                                TickFrequency="1" IsSnapToTickEnabled="True"
+                                ValueChanged="EqBands_Changed" Margin="0,2,0,0"/>
                         <TextBlock Text="Closing the window minimizes MicFX to the tray — exit via the tray icon."
                                    FontSize="11" Foreground="{StaticResource SubtleTextBrush}"
                                    TextWrapping="Wrap" Margin="0,10,0,0"/>
@@ -94,7 +102,7 @@
         </Border>
 
         <!-- Main area: full-height left column; right side = effects+EQ on top, soundboard strip below -->
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="2" x:Name="mainArea">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="300"/>
                 <ColumnDefinition Width="*"/>
@@ -104,9 +112,16 @@
                 <RowDefinition Height="200"/>
             </Grid.RowDefinitions>
 
-            <!-- Devices, levels, clean-up (full height, no scroll) -->
-            <StackPanel Grid.Column="0" Grid.RowSpan="2" Margin="0,0,10,0">
-                <GroupBox Header="DEVICES">
+            <!-- Devices, levels, clean-up: no scroll; the window's min height is
+                 computed from this panel at runtime, and the last card stretches
+                 so an enlarged window never shows a blank corner -->
+            <Grid x:Name="leftPanel" Grid.Column="0" Grid.RowSpan="2" Margin="0,0,10,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <GroupBox Grid.Row="0" Header="DEVICES">
                     <StackPanel>
                         <TextBlock Text="Microphone" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
                         <ComboBox x:Name="comboMic" Margin="0,2,0,8" SelectionChanged="Device_SelectionChanged"/>
@@ -124,7 +139,7 @@
                     </StackPanel>
                 </GroupBox>
 
-                <GroupBox Header="LEVELS">
+                <GroupBox Grid.Row="1" Header="LEVELS">
                     <StackPanel>
                         <DockPanel>
                             <TextBlock x:Name="lblMicGain" DockPanel.Dock="Right" Text="100%" FontSize="11"
@@ -147,7 +162,7 @@
                     </StackPanel>
                 </GroupBox>
 
-                <GroupBox Header="CLEAN-UP">
+                <GroupBox Grid.Row="2" Header="CLEAN-UP" Margin="0">
                     <StackPanel>
                         <DockPanel>
                             <TextBlock x:Name="lblDenoise" DockPanel.Dock="Right" Text="18 dB" FontSize="11"
@@ -178,7 +193,7 @@
                                 ValueChanged="Comp_Changed" Margin="0,2,0,0"/>
                     </StackPanel>
                 </GroupBox>
-            </StackPanel>
+            </Grid>
 
             <!-- Right top: voice effects (optional) + equalizer -->
             <Grid Grid.Column="1" Grid.Row="0">

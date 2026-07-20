@@ -1,4 +1,4 @@
-## MicFX v1.4.1 — layout fixes
+## MicFX v1.5 — adjustable EQ bands & a window that fits itself
 
 ### Download
 
@@ -9,19 +9,20 @@
 > ⚠ Unsigned — Windows SmartScreen may warn on first run:
 > click **More info → Run anyway**. In-app updates don't retrigger it.
 
-### Fixed in v1.4.1
+### New in v1.5
 
-- 📐 The window can no longer be shrunk so far that the **CLEAN-UP** section
-  gets cut off — the minimum height now always fits the whole left column.
-- 🔊 **Soundboard moved to a bottom strip beside the left column** (spanning
-  under the equalizer only), and the left panel keeps its full height —
-  matching how it was sketched: left column tall, EQ top-right, soundboard
-  below it.
+- 🎚 **Adjustable EQ resolution** — a slider in the ☰ settings menu picks
+  10–20 bands (log-spaced 31 Hz–16 kHz, filter width adapts). Your current
+  EQ curve is re-mapped onto the new bands, and presets/profiles work at any
+  band count.
+- 📐 **The window now measures itself**: the minimum height is exactly what
+  DEVICES + LEVELS + CLEAN-UP need — nothing can be cut off and there's no
+  blank corner. It opens at that exact height; if you enlarge it, the
+  CLEAN-UP card stretches to keep the left column full.
 
-Includes everything from v1.4: hamburger settings menu, in-app auto-update,
-spectral noise suppression, voice leveler, 9 voice effects, profiles, spectrum
-visualizer, soundboard with per-clip volume/hotkeys/loop/preview, guided
-VB-Cable setup, installer.
+Includes everything from v1.4.x: hamburger settings, in-app auto-update,
+noise suppression, voice leveler, 9 voice effects, profiles, spectrum
+visualizer, soundboard with per-clip volume/hotkeys/loop/preview, installer.
 
 ### Setup (one time)
 
