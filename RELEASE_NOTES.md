@@ -1,4 +1,4 @@
-## MicFX v1.4 — cleaner one-screen layout
+## MicFX v1.4.1 — layout fixes
 
 ### Download
 
@@ -9,18 +9,19 @@
 > ⚠ Unsigned — Windows SmartScreen may warn on first run:
 > click **More info → Run anyway**. In-app updates don't retrigger it.
 
-### Changed in v1.4
+### Fixed in v1.4.1
 
-- 🍔 **Settings moved to a hamburger menu** (top-left ☰) — "Show voice effects"
-  and "Run on Windows startup" now live in a flyout instead of taking up a panel.
-- 📐 **No more scrollbar on the left panel** — devices, levels and clean-up now
-  fit and fill the left column.
-- 🔊 **Soundboard is now a column beside the equalizer** (narrower, parallel)
-  instead of a wide strip along the bottom — the whole window reads in one row.
+- 📐 The window can no longer be shrunk so far that the **CLEAN-UP** section
+  gets cut off — the minimum height now always fits the whole left column.
+- 🔊 **Soundboard moved to a bottom strip beside the left column** (spanning
+  under the equalizer only), and the left panel keeps its full height —
+  matching how it was sketched: left column tall, EQ top-right, soundboard
+  below it.
 
-Includes everything from v1.3: in-app auto-update, spectral noise suppression,
-voice leveler, 9 voice effects, profiles, spectrum visualizer, soundboard with
-per-clip volume/hotkeys/loop/preview, guided VB-Cable setup, installer.
+Includes everything from v1.4: hamburger settings menu, in-app auto-update,
+spectral noise suppression, voice leveler, 9 voice effects, profiles, spectrum
+visualizer, soundboard with per-clip volume/hotkeys/loop/preview, guided
+VB-Cable setup, installer.
 
 ### Setup (one time)
 
