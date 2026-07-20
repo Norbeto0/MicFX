@@ -1,4 +1,4 @@
-## MicFX v1.3 — auto-update
+## MicFX v1.4 — cleaner one-screen layout
 
 ### Download
 
@@ -9,22 +9,18 @@
 > ⚠ Unsigned — Windows SmartScreen may warn on first run:
 > click **More info → Run anyway**. In-app updates don't retrigger it.
 
-### New in v1.3
+### Changed in v1.4
 
-- 🔄 **In-app auto-update**: when a new release is out, the banner now has an
-  **Install update** button — MicFX downloads it with a progress display,
-  installs silently and restarts itself on the new version.
-  - Installed copies update through the setup exe.
-  - Portable copies swap their own exe in place, wherever you keep it.
-- 🏷 Window title now shows the current version; after an update the status
-  bar confirms it.
-- 🔗 Repository moved to **github.com/Norbeto0/MicFX** (public) — which is
-  what makes update checks and downloads possible.
+- 🍔 **Settings moved to a hamburger menu** (top-left ☰) — "Show voice effects"
+  and "Run on Windows startup" now live in a flyout instead of taking up a panel.
+- 📐 **No more scrollbar on the left panel** — devices, levels and clean-up now
+  fit and fill the left column.
+- 🔊 **Soundboard is now a column beside the equalizer** (narrower, parallel)
+  instead of a wide strip along the bottom — the whole window reads in one row.
 
-Includes everything from v1.1/v1.2: spectral noise suppression, voice leveler,
-9 voice effects (panel hidden by default — toggle in SETTINGS), profiles,
-spectrum visualizer, soundboard with per-clip volume/hotkeys/loop/preview,
-guided VB-Cable setup, installer.
+Includes everything from v1.3: in-app auto-update, spectral noise suppression,
+voice leveler, 9 voice effects, profiles, spectrum visualizer, soundboard with
+per-clip volume/hotkeys/loop/preview, guided VB-Cable setup, installer.
 
 ### Setup (one time)
 
