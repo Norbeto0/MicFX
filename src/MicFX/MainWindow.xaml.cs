@@ -367,6 +367,15 @@ public partial class MainWindow : Window
         ApplyEffectsPanelVisibility();
         sliderEqBands.Value = settings.EqBandCount;
         lblEqBands.Text = settings.EqBandCount.ToString();
+        foreach (ComboBoxItem item in comboLatency.Items)
+        {
+            if ((string)item.Tag == settings.LatencyMode)
+            {
+                item.IsSelected = true;
+                break;
+            }
+        }
+        engine.SetLatencyMode(settings.LatencyMode);
 
         // With the panel hidden there must be no invisible active effect.
         if (!settings.ShowVoiceEffects)
@@ -433,6 +442,7 @@ public partial class MainWindow : Window
         settings.EffectIntensity = (int)sliderIntensity.Value;
         settings.ShowVoiceEffects = chkShowEffects.IsChecked == true;
         settings.EqBandCount = eqFrequencies.Length;
+        settings.LatencyMode = CurrentLatencyMode();
         settings.ActiveProfile = comboProfile.SelectedItem as string;
         settings.Sounds = sounds
             .Select(s => new SoundClipSetting
@@ -471,6 +481,8 @@ public partial class MainWindow : Window
             ApplyMonitor();
             btnStartStop.Content = "Stop";
             txtStatus.Text = $"Running — {mic.Name}  →  {render.Name}";
+            if (engine.CaptureNote != null)
+                txtStatus.Text += $"  ({engine.CaptureNote})";
         }
         catch (Exception ex)
         {
@@ -987,6 +999,17 @@ public partial class MainWindow : Window
 
     private string CurrentDenoiseMode() =>
         (comboDenoiseMode.SelectedItem as ComboBoxItem)?.Tag as string ?? "Ai";
+
+    private string CurrentLatencyMode() =>
+        (comboLatency.SelectedItem as ComboBoxItem)?.Tag as string ?? "Normal";
+
+    private void Latency_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (initializing) return;
+        settings.LatencyMode = CurrentLatencyMode();
+        engine.SetLatencyMode(settings.LatencyMode);
+        RestartIfRunning();
+    }
 
     private void Denoise_Changed(object sender, RoutedEventArgs e)
     {

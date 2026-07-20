@@ -32,6 +32,10 @@ mic -> gain -> noise suppression -> gate -> EQ -> compressor -> voice effect
   tray menu
 - Self-monitoring on a separate output device
 - Input/output level meters, mic gain, master volume
+- Latency modes in the settings menu: Normal (~90 ms mouth-to-app, safest),
+  Low (smaller buffers), Lowest (additionally opens the mic in WASAPI
+  exclusive mode, bypassing the Windows audio engine; falls back to shared
+  if the device refuses)
 - Closing the window minimizes to the system tray; optional start with
   Windows (minimized)
 - In-app auto-update from GitHub releases

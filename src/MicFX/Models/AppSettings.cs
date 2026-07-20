@@ -57,6 +57,7 @@ public class AppSettings
     public bool CableNoticeDismissed { get; set; }
     public bool ShowVoiceEffects { get; set; }
     public int EqBandCount { get; set; } = 10;
+    public string LatencyMode { get; set; } = "Normal";
 
     private static string SettingsDir =>
         System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MicFX");

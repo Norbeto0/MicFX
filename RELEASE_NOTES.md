@@ -9,19 +9,19 @@ The binaries are unsigned, so SmartScreen may warn on first run
 
 ### Changes
 
-- Noise suppression now has two engines, selectable under CLEAN-UP:
-  - "AI (RNNoise)" (new default) - the recurrent-network denoiser from
-    xiph.org that Discord's standard noise suppression is based on. It
-    removes everything that is not voice. The native library is compiled
-    from the pinned official source (v0.1.1) during the release build; if it
-    cannot be loaded, MicFX falls back to the spectral engine.
-  - "Spectral" - the previous suppressor with an adjustable strength slider.
-- Input level normalization around the RNNoise model, so quiet microphones
-  get full suppression quality.
-- If Discord's Krisp/noise suppression breaks your soundboard audio: turn
-  noise suppression off in Discord and enable it in MicFX instead. MicFX
-  suppresses noise on the mic before the soundboard is mixed in, so clips
-  are unaffected.
+- New latency setting in the settings menu with three modes:
+  - Normal: previous behaviour (20 ms capture / 50 ms output buffers), the
+    safest choice.
+  - Low: 10 ms capture / 25 ms output buffers.
+  - Lowest: same buffers as Low plus WASAPI exclusive-mode mic capture,
+    which bypasses the Windows audio engine entirely. Only MicFX can use
+    the mic while the engine runs (other apps read the virtual cable, so
+    nothing is lost). If the device refuses exclusive mode, MicFX falls
+    back to shared and says so in the status bar.
+- Changing the mode restarts the engine automatically. Roughly, Normal is
+  ~90 ms from mouth to the virtual cable, Lowest around 40-50 ms. Pitch
+  effects (female/deep/chipmunk) add ~35 ms on top; other effects add none.
+- If low modes crackle on your machine, switch back to Normal.
 
 ### First-time setup
 

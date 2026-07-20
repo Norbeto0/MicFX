@@ -70,10 +70,20 @@ public class AudioEngine : IDisposable
     private float compAmount = 50f;
     private string effectName = "None";
     private int effectIntensity = 50;
+    private string latencyMode = "Normal";
 
     private float lastInputDb = -100f;
 
     public bool IsRunning { get; private set; }
+
+    /// <summary>Set after Start(): e.g. "exclusive mic access" or a fallback warning.</summary>
+    public string? CaptureNote { get; private set; }
+
+    private int CaptureLatencyMs => latencyMode is "Low" or "Lowest" ? 10 : 20;
+    private int OutputLatencyMs => latencyMode switch { "Lowest" => 20, "Low" => 25, _ => 50 };
+
+    /// <summary>Takes effect on the next Start(); the UI restarts the engine after changing it.</summary>
+    public void SetLatencyMode(string mode) => latencyMode = mode;
 
     /// <summary>Raised from the audio thread with (input dB, output dB) roughly 20×/second.</summary>
     public event Action<float, float>? LevelsAvailable;
@@ -84,8 +94,9 @@ public class AudioEngine : IDisposable
     public void Start(MMDevice input, MMDevice render)
     {
         Stop();
+        CaptureNote = null;
 
-        capture = new WasapiCapture(input, true, 20);
+        capture = StartCapture(input);
         var format = NormalizeFormat(capture.WaveFormat);
         if (format.Channels > 2)
             throw new NotSupportedException(
@@ -154,12 +165,56 @@ public class AudioEngine : IDisposable
 
         ApplyEffect(effectName, effectIntensity);
 
-        output = new WasapiOut(render, AudioClientShareMode.Shared, true, 50);
+        output = new WasapiOut(render, AudioClientShareMode.Shared, true, OutputLatencyMs);
         output.Init(new SampleToWaveProvider(tee));
 
-        capture.StartRecording();
         output.Play();
         IsRunning = true;
+    }
+
+    /// <summary>
+    /// Opens and starts the capture device. In "Lowest" mode this tries WASAPI
+    /// exclusive first (bypasses the Windows audio engine; fine here because
+    /// only MicFX needs the raw mic), walking a list of common exclusive
+    /// formats, then falls back to shared mode with a note.
+    /// Recording is already running when this returns — the DataAvailable
+    /// subscription is attached moments later, which only drops a few ms.
+    /// </summary>
+    private WasapiCapture StartCapture(MMDevice device)
+    {
+        int ms = CaptureLatencyMs;
+        if (latencyMode == "Lowest")
+        {
+            var candidates = new[]
+            {
+                new WaveFormat(48000, 16, 2), new WaveFormat(48000, 16, 1),
+                new WaveFormat(48000, 24, 2), new WaveFormat(48000, 24, 1),
+                new WaveFormat(44100, 16, 2), new WaveFormat(44100, 16, 1),
+            };
+            foreach (var fmt in candidates)
+            {
+                var attempt = new WasapiCapture(device, true, ms)
+                {
+                    ShareMode = AudioClientShareMode.Exclusive,
+                    WaveFormat = fmt
+                };
+                try
+                {
+                    attempt.StartRecording();
+                    CaptureNote = "exclusive mic access";
+                    return attempt;
+                }
+                catch
+                {
+                    attempt.Dispose();
+                }
+            }
+            CaptureNote = "exclusive mode not supported by this mic — using shared";
+        }
+
+        var shared = new WasapiCapture(device, true, ms);
+        shared.StartRecording();
+        return shared;
     }
 
     /// <summary>Enable/disable self-monitoring on the given render device. Safe to call any time while running.</summary>
@@ -174,7 +229,7 @@ public class AudioEngine : IDisposable
         if (!IsRunning || !enabled || device == null || tee == null || monitorBuffer == null)
             return;
 
-        monitorOutput = new WasapiOut(device, AudioClientShareMode.Shared, true, 50);
+        monitorOutput = new WasapiOut(device, AudioClientShareMode.Shared, true, OutputLatencyMs);
         monitorOutput.Init(monitorBuffer);
         monitorOutput.Play();
         tee.Enabled = true;

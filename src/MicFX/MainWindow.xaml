@@ -60,6 +60,16 @@
                         <Slider x:Name="sliderEqBands" Minimum="10" Maximum="20" Value="10"
                                 TickFrequency="1" IsSnapToTickEnabled="True"
                                 ValueChanged="EqBands_Changed" Margin="0,2,0,0"/>
+                        <TextBlock Text="Latency" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"
+                                   Margin="0,12,0,0"/>
+                        <ComboBox x:Name="comboLatency" Margin="0,2,0,0" SelectionChanged="Latency_Changed">
+                            <ComboBoxItem Content="Normal — safest" Tag="Normal" IsSelected="True"/>
+                            <ComboBoxItem Content="Low — small buffers" Tag="Low"/>
+                            <ComboBoxItem Content="Lowest — exclusive mic" Tag="Lowest"/>
+                        </ComboBox>
+                        <TextBlock Text="Lower settings reduce delay but may crackle on slower PCs. Exclusive takes over the mic while the engine runs."
+                                   FontSize="11" Foreground="{StaticResource SubtleTextBrush}"
+                                   TextWrapping="Wrap" Margin="0,4,0,0"/>
                         <TextBlock Text="Closing the window minimizes MicFX to the tray — exit via the tray icon."
                                    FontSize="11" Foreground="{StaticResource SubtleTextBrush}"
                                    TextWrapping="Wrap" Margin="0,10,0,0"/>
