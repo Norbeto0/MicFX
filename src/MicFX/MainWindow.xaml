@@ -169,8 +169,13 @@
                                        Foreground="{StaticResource SubtleTextBrush}"/>
                             <CheckBox x:Name="chkDenoise" Content="Noise suppression"
                                       Checked="Denoise_Changed" Unchecked="Denoise_Changed"
-                                      ToolTip="Removes steady background noise (fans, hum, AC) while you talk"/>
+                                      ToolTip="Removes background noise from the mic before the soundboard is mixed in"/>
                         </DockPanel>
+                        <ComboBox x:Name="comboDenoiseMode" Margin="0,4,0,4"
+                                  SelectionChanged="Denoise_Changed">
+                            <ComboBoxItem Content="AI (RNNoise) — voices only" Tag="Ai" IsSelected="True"/>
+                            <ComboBoxItem Content="Spectral — adjustable strength" Tag="Spectral"/>
+                        </ComboBox>
                         <Slider x:Name="sliderDenoise" Minimum="6" Maximum="30" Value="18"
                                 ValueChanged="Denoise_Changed" Margin="0,2,0,8"/>
                         <DockPanel>

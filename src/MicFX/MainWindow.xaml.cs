@@ -349,6 +349,16 @@ public partial class MainWindow : Window
         sliderGate.Value = settings.GateThresholdDb;
         chkDenoise.IsChecked = settings.DenoiseEnabled;
         sliderDenoise.Value = settings.DenoiseStrengthDb;
+        foreach (ComboBoxItem item in comboDenoiseMode.Items)
+        {
+            if ((string)item.Tag == settings.DenoiseMode)
+            {
+                item.IsSelected = true;
+                break;
+            }
+        }
+        sliderDenoise.IsEnabled = settings.DenoiseMode == "Spectral";
+        lblDenoise.Text = settings.DenoiseMode == "Spectral" ? $"{settings.DenoiseStrengthDb:0} dB" : "AI";
         chkComp.IsChecked = settings.CompressorEnabled;
         sliderComp.Value = settings.CompressorAmount;
         chkMonitor.IsChecked = settings.MonitorEnabled;
@@ -385,7 +395,7 @@ public partial class MainWindow : Window
         engine.SetMasterVolume(settings.MasterVolume);
         engine.SetSoundboardVolume(settings.SoundboardVolume);
         engine.SetGate(settings.GateEnabled, settings.GateThresholdDb);
-        engine.SetDenoise(settings.DenoiseEnabled, settings.DenoiseStrengthDb);
+        engine.SetDenoise(settings.DenoiseEnabled, settings.DenoiseStrengthDb, settings.DenoiseMode);
         engine.SetCompressor(settings.CompressorEnabled, settings.CompressorAmount);
         engine.SetEqBands(settings.EqBandCount, settings.EqGainsDb);
         engine.SetEffect(settings.Effect, settings.EffectIntensity);
@@ -416,6 +426,7 @@ public partial class MainWindow : Window
         settings.GateThresholdDb = (float)sliderGate.Value;
         settings.DenoiseEnabled = chkDenoise.IsChecked == true;
         settings.DenoiseStrengthDb = (float)sliderDenoise.Value;
+        settings.DenoiseMode = CurrentDenoiseMode();
         settings.CompressorEnabled = chkComp.IsChecked == true;
         settings.CompressorAmount = (float)sliderComp.Value;
         settings.Effect = CurrentEffectTag();
@@ -808,6 +819,7 @@ public partial class MainWindow : Window
         GateThresholdDb = (float)sliderGate.Value,
         DenoiseEnabled = chkDenoise.IsChecked == true,
         DenoiseStrengthDb = (float)sliderDenoise.Value,
+        DenoiseMode = CurrentDenoiseMode(),
         CompressorEnabled = chkComp.IsChecked == true,
         CompressorAmount = (float)sliderComp.Value,
         EqGainsDb = eqSliders.Select(s => (float)s.Value).ToArray(),
@@ -823,6 +835,14 @@ public partial class MainWindow : Window
         sliderGate.Value = p.GateThresholdDb;
         chkDenoise.IsChecked = p.DenoiseEnabled;
         sliderDenoise.Value = p.DenoiseStrengthDb;
+        foreach (ComboBoxItem item in comboDenoiseMode.Items)
+        {
+            if ((string)item.Tag == p.DenoiseMode)
+            {
+                item.IsSelected = true;
+                break;
+            }
+        }
         chkComp.IsChecked = p.CompressorEnabled;
         sliderComp.Value = p.CompressorAmount;
         var profileGains = MapGainsToBands(p.EqGainsDb, eqFrequencies);
@@ -965,11 +985,21 @@ public partial class MainWindow : Window
         engine.SetGate(chkGate.IsChecked == true, (float)sliderGate.Value);
     }
 
+    private string CurrentDenoiseMode() =>
+        (comboDenoiseMode.SelectedItem as ComboBoxItem)?.Tag as string ?? "Ai";
+
     private void Denoise_Changed(object sender, RoutedEventArgs e)
     {
-        if (lblDenoise != null) lblDenoise.Text = $"{sliderDenoise.Value:0} dB";
+        if (lblDenoise == null || sliderDenoise == null || comboDenoiseMode == null) return;
+        string mode = CurrentDenoiseMode();
+        bool spectral = mode == "Spectral";
+        sliderDenoise.IsEnabled = spectral;
+        lblDenoise.Text = spectral ? $"{sliderDenoise.Value:0} dB" : "AI";
         if (initializing) return;
-        engine.SetDenoise(chkDenoise.IsChecked == true, (float)sliderDenoise.Value);
+
+        engine.SetDenoise(chkDenoise.IsChecked == true, (float)sliderDenoise.Value, mode);
+        if (chkDenoise.IsChecked == true && mode == "Ai" && !AudioEngine.AiDenoiseAvailable)
+            txtStatus.Text = "RNNoise library not found — using spectral suppression instead.";
     }
 
     private void Comp_Changed(object sender, RoutedEventArgs e)

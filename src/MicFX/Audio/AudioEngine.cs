@@ -37,6 +37,7 @@ public class AudioEngine : IDisposable
     private VolumeSampleProvider? micVolume;
     private VolumeSampleProvider? soundboardVolume;
     private VolumeSampleProvider? masterVolume;
+    private RnNoiseSampleProvider? aiDenoise;
     private NoiseSuppressionSampleProvider? denoise;
     private NoiseGateSampleProvider? gate;
     private EqualizerSampleProvider? eq;
@@ -64,6 +65,7 @@ public class AudioEngine : IDisposable
     private float gateThresholdDb = -45f;
     private bool denoiseEnabled;
     private float denoiseStrengthDb = 18f;
+    private string denoiseMode = "Ai";
     private bool compEnabled;
     private float compAmount = 50f;
     private string effectName = "None";
@@ -99,11 +101,9 @@ public class AudioEngine : IDisposable
         ISampleProvider mic = micBuffer.ToSampleProvider();
         if (mic.WaveFormat.SampleRate != SampleRate)
             mic = new WdlResamplingSampleProvider(mic, SampleRate);
-        denoise = new NoiseSuppressionSampleProvider(mic)
-        {
-            Enabled = denoiseEnabled,
-            ReductionDb = denoiseStrengthDb
-        };
+        aiDenoise = new RnNoiseSampleProvider(mic);
+        denoise = new NoiseSuppressionSampleProvider(aiDenoise) { ReductionDb = denoiseStrengthDb };
+        ApplyDenoise();
         mic = denoise;
         if (mic.WaveFormat.Channels == 1)
             mic = new MonoToStereoSampleProvider(mic);
@@ -200,6 +200,8 @@ public class AudioEngine : IDisposable
         micVolume = null;
         soundboardVolume = null;
         masterVolume = null;
+        aiDenoise?.Dispose();
+        aiDenoise = null;
         denoise = null;
         gate = null;
         eq = null;
@@ -246,14 +248,26 @@ public class AudioEngine : IDisposable
         }
     }
 
-    public void SetDenoise(bool enabled, float strengthDb)
+    /// <summary>True when the native RNNoise library is loadable on this machine.</summary>
+    public static bool AiDenoiseAvailable => RnNoiseSampleProvider.IsAvailable;
+
+    public void SetDenoise(bool enabled, float strengthDb, string mode)
     {
         denoiseEnabled = enabled;
         denoiseStrengthDb = strengthDb;
+        denoiseMode = mode;
+        ApplyDenoise();
+    }
+
+    private void ApplyDenoise()
+    {
+        bool useAi = denoiseEnabled && denoiseMode == "Ai" && RnNoiseSampleProvider.IsAvailable;
+        if (aiDenoise != null)
+            aiDenoise.Enabled = useAi;
         if (denoise != null)
         {
-            denoise.Enabled = enabled;
-            denoise.ReductionDb = strengthDb;
+            denoise.Enabled = denoiseEnabled && !useAi;
+            denoise.ReductionDb = denoiseStrengthDb;
         }
     }
 

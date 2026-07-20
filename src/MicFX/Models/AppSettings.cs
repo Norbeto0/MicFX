@@ -24,6 +24,7 @@ public class Profile
     public float GateThresholdDb { get; set; } = -45f;
     public bool DenoiseEnabled { get; set; }
     public float DenoiseStrengthDb { get; set; } = 18f;
+    public string DenoiseMode { get; set; } = "Ai";
     public bool CompressorEnabled { get; set; }
     public float CompressorAmount { get; set; } = 50f;
     public float[] EqGainsDb { get; set; } = new float[10];
@@ -44,6 +45,7 @@ public class AppSettings
     public float GateThresholdDb { get; set; } = -45f;
     public bool DenoiseEnabled { get; set; }
     public float DenoiseStrengthDb { get; set; } = 18f;
+    public string DenoiseMode { get; set; } = "Ai";
     public bool CompressorEnabled { get; set; }
     public float CompressorAmount { get; set; } = 50f;
     public float[] EqGainsDb { get; set; } = new float[10];

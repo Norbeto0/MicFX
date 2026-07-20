@@ -16,8 +16,11 @@ mic -> gain -> noise suppression -> gate -> EQ -> compressor -> voice effect
 
 - Graphic EQ with adjustable band count (10-20, log-spaced 31 Hz-16 kHz,
   +/-15 dB), presets, live spectrum display behind the sliders
-- Spectral noise suppression (STFT with adaptive per-bin noise floor),
-  adjustable strength
+- Noise suppression with two engines: AI (RNNoise, the recurrent-network
+  denoiser Discord's standard suppression is based on; removes everything
+  that is not voice) and spectral (STFT with adaptive noise floor,
+  adjustable strength). Applied to the mic before the soundboard is mixed
+  in, so clips are never affected
 - Noise gate with adjustable threshold
 - Compressor ("voice leveler") with automatic make-up gain
 - Voice effects: robot, female, deep, chipmunk, cave echo, megaphone, alien,
@@ -79,6 +82,7 @@ installer and creates the GitHub release with all three assets.
 | Crackling or dropouts | Increase the WASAPI latency (the `50` ms in `AudioEngine.cs`) or close CPU-heavy applications. Pitch effects add roughly 40 ms of inherent latency. |
 | Hotkeys do not fire | Another application owns the combination. MicFX skips combinations it cannot register; assign a different one per clip. |
 | Callers hear an echo of themselves | Disable "Listen to myself", or make sure the monitor device is headphones rather than speakers. |
+| Soundboard sounds broken or muffled to others | Discord's Krisp/noise suppression filters out non-voice audio, which includes soundboard clips. Disable noise suppression in Discord and enable MicFX's instead (CLEAN-UP > Noise suppression) — MicFX suppresses noise before the soundboard is mixed in. |
 
 ## Project layout
 
@@ -87,6 +91,7 @@ src/MicFX/
   Audio/
     AudioEngine.cs               real-time graph, start/stop, live parameters
     AudioDevices.cs              WASAPI endpoint enumeration
+    RnNoiseSampleProvider.cs     RNNoise (ML) denoiser, P/Invoke wrapper
     NoiseSuppressionSampleProvider.cs  spectral denoiser
     NoiseGateSampleProvider.cs   envelope-follower gate
     CompressorSampleProvider.cs  compressor with auto make-up
@@ -109,5 +114,8 @@ installer/MicFX.iss              Inno Setup script (built in CI)
 
 ## Credits
 
-Uses [NAudio](https://github.com/naudio/NAudio) (MIT). VB-Audio Virtual Cable
+Uses [NAudio](https://github.com/naudio/NAudio) (MIT) and
+[RNNoise](https://github.com/xiph/rnnoise) (BSD-3-Clause, compiled from the
+pinned official source during the release build; local dev builds without the
+native library fall back to the spectral suppressor). VB-Audio Virtual Cable
 is donationware by VB-Audio Software.

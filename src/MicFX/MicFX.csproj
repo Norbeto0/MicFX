@@ -12,7 +12,7 @@
     <AssemblyName>MicFX</AssemblyName>
     <RootNamespace>MicFX</RootNamespace>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <Version>1.5.0</Version>
+    <Version>1.6.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -27,6 +27,13 @@
 
   <ItemGroup>
     <Resource Include="Assets/micfx.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Built from pinned xiph/rnnoise source by the release workflow; local
+         builds without it fall back to the spectral suppressor at runtime. -->
+    <None Include="native/rnnoise.dll" Condition="Exists('native/rnnoise.dll')"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

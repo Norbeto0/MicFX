@@ -25,6 +25,20 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      # Native RNNoise, compiled from the pinned official xiph source so the
+      # binary is reproducible and auditable. gcc here is MinGW-w64 from the
+      # runner image.
+      - name: Build RNNoise from source
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch v0.1.1 https://github.com/xiph/rnnoise rnnoise-src
+          New-Item -ItemType Directory -Force src/MicFX/native | Out-Null
+          $src = @('denoise.c','rnn.c','rnn_data.c','rnn_reader.c','pitch.c','kiss_fft.c','celt_lpc.c') |
+            ForEach-Object { "rnnoise-src/src/$_" }
+          gcc -O3 -shared -static-libgcc -Irnnoise-src/include -Irnnoise-src/src @src -o src/MicFX/native/rnnoise.dll
+          if (!(Test-Path src/MicFX/native/rnnoise.dll)) { throw 'rnnoise build failed' }
+          gcc --version | Select-Object -First 1
+
       - name: Publish self-contained exe
         run: >
           dotnet publish src/MicFX/MicFX.csproj -c Release -r win-x64 --self-contained

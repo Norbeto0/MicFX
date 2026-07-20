@@ -9,14 +9,19 @@ The binaries are unsigned, so SmartScreen may warn on first run
 
 ### Changes
 
-- The EQ band count is adjustable between 10 and 20 from the settings menu.
-  Bands stay log-spaced between 31 Hz and 16 kHz and the filter width follows
-  the spacing. The current curve, presets and saved profiles are re-mapped
-  onto the new band centres instead of being reset.
-- The window now derives its minimum height from the measured height of the
-  left column, so the clean-up section can no longer be cut off and there is
-  no dead space below it. Enlarging the window stretches the last card
-  instead of leaving a gap.
+- Noise suppression now has two engines, selectable under CLEAN-UP:
+  - "AI (RNNoise)" (new default) - the recurrent-network denoiser from
+    xiph.org that Discord's standard noise suppression is based on. It
+    removes everything that is not voice. The native library is compiled
+    from the pinned official source (v0.1.1) during the release build; if it
+    cannot be loaded, MicFX falls back to the spectral engine.
+  - "Spectral" - the previous suppressor with an adjustable strength slider.
+- Input level normalization around the RNNoise model, so quiet microphones
+  get full suppression quality.
+- If Discord's Krisp/noise suppression breaks your soundboard audio: turn
+  noise suppression off in Discord and enable it in MicFX instead. MicFX
+  suppresses noise on the mic before the soundboard is mixed in, so clips
+  are unaffected.
 
 ### First-time setup
 
