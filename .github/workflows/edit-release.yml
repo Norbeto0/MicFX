@@ -1,0 +1,25 @@
+name: Edit release notes
+
+# Maintenance workflow: replaces an existing release's body with the current
+# contents of RELEASE_NOTES.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to update (e.g. v1.5.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update release body from RELEASE_NOTES.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.event.inputs.tag }}" --notes-file RELEASE_NOTES.md

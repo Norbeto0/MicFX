@@ -1,122 +1,97 @@
-# MicFX 🎙
+# MicFX
 
-A Windows desktop app in the spirit of **Voicemod** and the mic channel of
-**SteelSeries Sonar / Voicemeeter** — but deliberately scoped to a single
-microphone input and a single output.
+Real-time microphone processing for Windows: EQ, noise suppression, noise
+gate, compressor, voice effects and a soundboard on a single mic input. The
+processed signal is routed to a virtual audio device so other applications
+(Discord, OBS, games) can use it as their microphone.
 
-Real-time pipeline (48 kHz, WASAPI shared mode):
+Pipeline (WASAPI shared mode, 48 kHz float):
 
 ```
-Microphone → Mic gain → Noise gate → 10-band EQ → Voice effect
-           → (+ Soundboard) → Master volume → Output device
+mic -> gain -> noise suppression -> gate -> EQ -> compressor -> voice effect
+    -> (+ soundboard) -> master volume -> output device (virtual cable)
 ```
 
-**Features**
+## Features
 
-- 🧹 **Noise suppression** — spectral (STFT) denoiser that removes steady
-  background noise (fans, AC, hum) *while you talk*, with adjustable strength
-- 🎯 **Voice leveler** — broadcast-style compressor with auto make-up gain
-- 🎚 **10–20 band EQ** (31 Hz – 16 kHz, ±15 dB, band count adjustable in ☰
-  settings) with presets and a **live spectrum visualizer** behind the sliders
-- 🚪 **Noise gate** with adjustable threshold, fast attack / smooth release
-- 🤖 **Voice effects**: Robot, Female, Deep Male, Chipmunk, Cave Echo,
-  Megaphone, Alien (flanger), Whisper, Ghost (reverse echo) — each with an
-  intensity slider, switchable live
-- 🔊 **Soundboard**: play wav/mp3/m4a/wma clips *into your mic signal*;
-  global hotkeys (Ctrl+Alt+1…9 by default, customizable per clip), per-clip
-  volume, loop mode, headphones-only preview, Stop All
-- 👤 **Profiles**: save/switch whole sound setups from the app or the tray menu
-- 🎧 **Self-monitoring** ("listen to myself") on a separate device
-- 📈 Live input/output level meters, mic gain & master volume
-- 🖥 **Close-to-tray**: clicking ✕ minimizes MicFX to the system tray (exit via the tray icon)
-- 🚀 **Run on Windows startup** (optional) — starts minimized in the tray
-- 🔄 **In-app auto-update** from GitHub releases (one click: download, silent
-  install, restart); guided first-run VB-Cable setup
-- 💾 All settings persisted in `%APPDATA%\MicFX\settings.json`
+- Graphic EQ with adjustable band count (10-20, log-spaced 31 Hz-16 kHz,
+  +/-15 dB), presets, live spectrum display behind the sliders
+- Spectral noise suppression (STFT with adaptive per-bin noise floor),
+  adjustable strength
+- Noise gate with adjustable threshold
+- Compressor ("voice leveler") with automatic make-up gain
+- Voice effects: robot, female, deep, chipmunk, cave echo, megaphone, alien,
+  whisper, ghost; one intensity control; panel hidden by default, enabled in
+  the settings menu
+- Soundboard mixed into the mic stream: per-clip volume, loop mode, custom
+  global hotkeys (Ctrl+Alt+1..9 by default), headphone-only preview
+- Profiles for saving and switching complete configurations, also from the
+  tray menu
+- Self-monitoring on a separate output device
+- Input/output level meters, mic gain, master volume
+- Closing the window minimizes to the system tray; optional start with
+  Windows (minimized)
+- In-app auto-update from GitHub releases
+- Settings persisted in `%APPDATA%\MicFX\settings.json`
 
-The full product spec this app was built from is in [SPEC.md](SPEC.md).
+## Setup
 
----
+MicFX needs a virtual audio cable so other applications can read the
+processed signal:
 
-## 1. One-time setup: install a virtual audio cable
+1. Install [VB-Audio Virtual Cable](https://vb-audio.com/Cable/). Run the
+   installer as administrator and reboot. This adds a playback device
+   ("CABLE Input") and a recording device ("CABLE Output").
+2. Download `MicFX-Setup-<version>.exe` (installer) or `MicFX.exe` (portable)
+   from the [releases page](../../releases). The binaries are unsigned, so
+   SmartScreen may warn on first run.
+3. In MicFX: select your microphone as input, "CABLE Input" as output, press
+   Start. Optionally set your headphones as monitor and enable "Listen to
+   myself".
+4. Point the target application at the cable:
 
-MicFX processes your mic and plays the result to an output device. For other
-apps (Discord, OBS, games) to *see* that processed signal as a microphone, you
-route it through a free virtual cable:
+| Application | Setting |
+|---|---|
+| Discord | Settings > Voice & Video > Input Device > CABLE Output |
+| OBS | Audio Input Capture source > CABLE Output |
+| Other | Set CABLE Output as default recording device in Windows Sound settings |
 
-1. Download **VB-Audio Virtual Cable**: <https://vb-audio.com/Cable/>
-2. Extract and run `VBCABLE_Setup_x64.exe` **as administrator**, then reboot.
-3. Windows now has two new devices:
-   - Playback: **CABLE Input** ← MicFX sends processed audio here
-   - Recording: **CABLE Output** ← other apps use this as their "microphone"
+## Building
 
-> Why no built-in driver? Signed Windows kernel audio drivers require
-> WHQL/EV certification — Voicemod ships one because it's a commercial product.
-> VB-Cable is the standard free equivalent and works identically.
-
-## 2. Run MicFX
-
-**Easiest:** download `MicFX-Setup-….exe` (installer, with Start-Menu entry and
-uninstaller) or the portable `MicFX.exe` from the
-[Releases page](../../releases) — both are self-contained, no .NET install needed.
-(They are unsigned, so SmartScreen may warn on first run: **More info → Run anyway**.)
-
-Or build from source with the .NET 8 SDK:
+Requires the .NET 8 SDK.
 
 ```
 dotnet run --project src/MicFX
 ```
 
-Then in MicFX:
-   - **Microphone** → your real mic
-   - **Output** → **CABLE Input (VB-Audio Virtual Cable)**
-   - **Monitor** → your headphones, tick *Listen to myself* to hear the effects
-   - Press **Start**
+`publish.cmd` produces a self-contained single-file `dist\MicFX.exe`.
 
-## 3. Point your apps at the cable
-
-| App | Setting |
-|---|---|
-| Discord | Settings → Voice & Video → Input Device → **CABLE Output** |
-| OBS | Add Audio Input Capture source → **CABLE Output** |
-| Games / others | Set default recording device to **CABLE Output** in Windows Sound settings |
-
-Talk — your voice arrives EQ'd, gated and effected; soundboard clips are mixed
-in on top while you keep talking.
-
-## Building a standalone .exe
-
-On a Windows machine with the .NET 8 SDK:
-
-```
-publish.cmd
-```
-
-This produces a single self-contained `dist\MicFX.exe` (~150 MB, no .NET
-install required on the target machine).
+Releases are built by `.github/workflows/release.yml` (on a `v*` tag push or
+manual dispatch): it publishes the exe, zips it, compiles the Inno Setup
+installer and creates the GitHub release with all three assets.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| "Error: … device in use" on Start | Another app holds the device in exclusive mode — disable exclusive mode in the device's Sound settings, or close the other app. |
-| Discord hears nothing | Check MicFX **Output** is CABLE Input, Discord input is CABLE Output, and the engine is **Running** (green meters move when you talk). |
-| Robotic crackling / dropouts | Raise the WASAPI latency (see `AudioEngine.cs`, the `50` ms in `WasapiOut`) or close CPU-heavy apps. Pitch effects add ~40 ms inherent latency. |
-| Hotkeys don't fire | Another app owns Ctrl+Alt+number. MicFX skips combos it can't register. |
-| Echo of yourself in calls | Turn off *Listen to myself*, or make sure your monitor device is headphones, not speakers. |
+| "Error: ... device in use" on Start | Another application holds the device in exclusive mode. Disable exclusive mode in the device's sound settings or close the other application. |
+| Discord hears nothing | Check MicFX output is CABLE Input, Discord input is CABLE Output, and the engine is running (meters move when you talk). |
+| Crackling or dropouts | Increase the WASAPI latency (the `50` ms in `AudioEngine.cs`) or close CPU-heavy applications. Pitch effects add roughly 40 ms of inherent latency. |
+| Hotkeys do not fire | Another application owns the combination. MicFX skips combinations it cannot register; assign a different one per clip. |
+| Callers hear an echo of themselves | Disable "Listen to myself", or make sure the monitor device is headphones rather than speakers. |
 
 ## Project layout
 
 ```
 src/MicFX/
   Audio/
-    AudioEngine.cs               the whole real-time graph, start/stop, live parameters
+    AudioEngine.cs               real-time graph, start/stop, live parameters
     AudioDevices.cs              WASAPI endpoint enumeration
-    NoiseSuppressionSampleProvider.cs  spectral (STFT) denoiser
-    NoiseGateSampleProvider.cs   envelope-follower downward gate
-    CompressorSampleProvider.cs  voice leveler with auto make-up
-    EqualizerSampleProvider.cs   10-band biquad peaking EQ
-    SpectrumTapSampleProvider.cs rolling sample window for the spectrum display
+    NoiseSuppressionSampleProvider.cs  spectral denoiser
+    NoiseGateSampleProvider.cs   envelope-follower gate
+    CompressorSampleProvider.cs  compressor with auto make-up
+    EqualizerSampleProvider.cs   10-20 band biquad peaking EQ
+    SpectrumTapSampleProvider.cs sample window for the spectrum display
     RingModulatorSampleProvider.cs  robot voice
     MegaphoneSampleProvider.cs   bandpass + drive distortion
     FlangerSampleProvider.cs     alien voice (swept delay)
@@ -124,15 +99,15 @@ src/MicFX/
     GhostSampleProvider.cs       reverse echo
     EchoSampleProvider.cs        cave echo (feedback delay)
     TeeSampleProvider.cs         split-off for self-monitoring
-  Models/AppSettings.cs          JSON persistence, profiles (%APPDATA%\MicFX)
+  Models/AppSettings.cs          JSON persistence, profiles
   HotkeyManager.cs               global hotkey registration
-  MainWindow.xaml(.cs)           UI: devices, EQ, effects, soundboard, profiles
+  MainWindow.xaml(.cs)           main UI
   EditSoundWindow.xaml(.cs)      per-clip editor (volume, loop, hotkey, preview)
-  App.xaml                       dark theme
+  App.xaml                       theme
 installer/MicFX.iss              Inno Setup script (built in CI)
 ```
 
-## License / credits
+## Credits
 
 Uses [NAudio](https://github.com/naudio/NAudio) (MIT). VB-Audio Virtual Cable
 is donationware by VB-Audio Software.
