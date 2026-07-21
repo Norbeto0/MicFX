@@ -109,7 +109,8 @@ public class AudioEngine : IDisposable
         };
         capture.DataAvailable += (_, e) => micBuffer?.AddSamples(e.Buffer, 0, e.BytesRecorded);
 
-        ISampleProvider mic = micBuffer.ToSampleProvider();
+        // Keep mouth-to-output latency bounded despite mic/output clock drift.
+        ISampleProvider mic = new DriftCompensatingSampleProvider(micBuffer, targetMs: 40, ceilingMs: 140);
         if (mic.WaveFormat.SampleRate != SampleRate)
             mic = new WdlResamplingSampleProvider(mic, SampleRate);
         aiDenoise = new RnNoiseSampleProvider(mic);

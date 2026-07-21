@@ -7,21 +7,15 @@
 The binaries are unsigned, so SmartScreen may warn on first run
 (More info > Run anyway). In-app updates are not affected.
 
-### Changes
+### Fixed
 
-- New latency setting in the settings menu with three modes:
-  - Normal: previous behaviour (20 ms capture / 50 ms output buffers), the
-    safest choice.
-  - Low: 10 ms capture / 25 ms output buffers.
-  - Lowest: same buffers as Low plus WASAPI exclusive-mode mic capture,
-    which bypasses the Windows audio engine entirely. Only MicFX can use
-    the mic while the engine runs (other apps read the virtual cable, so
-    nothing is lost). If the device refuses exclusive mode, MicFX falls
-    back to shared and says so in the status bar.
-- Changing the mode restarts the engine automatically. Roughly, Normal is
-  ~90 ms from mouth to the virtual cable, Lowest around 40-50 ms. Pitch
-  effects (female/deep/chipmunk) add ~35 ms on top; other effects add none.
-- If low modes crackle on your machine, switch back to Normal.
+- Latency no longer creeps up over time (previously it could grow to a second
+  or more, needing a restart). The microphone and the output device run on
+  independent clocks; when the mic ran slightly fast, its capture buffer kept
+  filling and delay accumulated. MicFX now watches the capture backlog and
+  trims the oldest audio when it grows past a threshold, keeping mouth-to-
+  output latency bounded (roughly 40-140 ms depending on drift). This was most
+  noticeable in the Low/Lowest latency modes.
 
 ### First-time setup
 
