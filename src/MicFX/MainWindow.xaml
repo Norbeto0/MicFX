@@ -136,9 +136,9 @@
                     <StackPanel>
                         <TextBlock Text="Microphone" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
                         <ComboBox x:Name="comboMic" Margin="0,2,0,8" SelectionChanged="Device_SelectionChanged"/>
-                        <TextBlock Text="Auto-switch to (when connected)" FontSize="11"
+                        <TextBlock Text="Auto-switch to (when it has audio)" FontSize="11"
                                    Foreground="{StaticResource SubtleTextBrush}"
-                                   ToolTip="This mic takes over whenever it is plugged in — e.g. a VR headset mic that appears when Virtual Desktop connects. Everything downstream keeps reading the same virtual cable."/>
+                                   ToolTip="This mic takes over whenever it is actually carrying audio — e.g. a VR headset mic once the headset connects. Virtual mics stay listed in Windows even when idle, so MicFX watches for real audio rather than mere presence. Everything downstream keeps reading the same virtual cable."/>
                         <ComboBox x:Name="comboMicPreferred" Margin="0,2,0,8" SelectionChanged="Device_SelectionChanged"/>
                         <TextBlock Text="Output (your virtual cable, e.g. CABLE Input)" FontSize="11"
                                    Foreground="{StaticResource SubtleTextBrush}"/>

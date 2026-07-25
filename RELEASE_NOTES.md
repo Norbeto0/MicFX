@@ -9,18 +9,20 @@ The binaries are unsigned, so SmartScreen may warn on first run
 
 ### Fixed
 
-- AI (RNNoise) noise suppression reported "library not found" and silently fell
-  back to spectral suppression on every installation. The native library was
-  compiled correctly by the release build but was placed next to the
-  executable, while every distribution form - the portable single file, the
-  zip and the installer - ships `MicFX.exe` on its own, so the library never
-  reached the machine. It is now embedded in the executable and unpacked to
-  `%LOCALAPPDATA%\MicFX\native` on first use, which works for all three forms.
-- When AI suppression genuinely cannot be used, the status bar now reports the
-  underlying reason instead of a generic message.
-- The release build verifies that the compiled library exports the expected
-  entry points and that it is still embedded, so this class of packaging
-  mistake fails the build instead of shipping.
+- Auto-switching now follows audio activity instead of device presence.
+  Virtual microphones such as Virtual Desktop's stay listed as "Ready" in
+  Windows whether or not the headset is connected, so the previous
+  presence-based rule handed the input over permanently as soon as the device
+  existed. MicFX now listens to the chosen auto-switch device in the
+  background and takes it over about a second after it starts carrying audio,
+  returning to the primary microphone after eight seconds of digital silence.
+  An idle virtual device emits exact digital silence, while any live
+  microphone carries a noise floor, which is what makes the two
+  distinguishable.
+- Selecting the recording end of the same virtual cable that MicFX writes to
+  (for example capturing "CABLE Output" while sending to "CABLE Input") is now
+  refused with an explanation instead of starting a feedback loop in which the
+  application processes its own output.
 
 ### First-time setup
 

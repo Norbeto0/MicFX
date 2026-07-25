@@ -83,8 +83,16 @@ public class AudioEngine : IDisposable
     private float monitorSound = 1f;
 
     private float lastInputDb = -100f;
+    private DateTime lastInputSoundUtc = DateTime.UtcNow;
 
     public bool IsRunning { get; private set; }
+
+    /// <summary>
+    /// How long the input has been carrying pure digital silence. Used to
+    /// notice that a virtual microphone has gone idle (e.g. the VR headset
+    /// disconnected) even though the device itself is still present.
+    /// </summary>
+    public TimeSpan SinceInputSound => DateTime.UtcNow - lastInputSoundUtc;
 
     /// <summary>Set after Start(): e.g. "exclusive mic access" or a fallback warning.</summary>
     public string? CaptureNote { get; private set; }
@@ -138,7 +146,13 @@ public class AudioEngine : IDisposable
             BufferDuration = TimeSpan.FromSeconds(2),
             DiscardOnBufferOverflow = true
         };
-        capture.DataAvailable += (_, e) => micBuffer?.AddSamples(e.Buffer, 0, e.BytesRecorded);
+        lastInputSoundUtc = DateTime.UtcNow;
+        capture.DataAvailable += (_, e) =>
+        {
+            if (!MicActivityProbe.IsDigitalSilence(e.Buffer, e.BytesRecorded))
+                lastInputSoundUtc = DateTime.UtcNow;
+            micBuffer?.AddSamples(e.Buffer, 0, e.BytesRecorded);
+        };
 
         // Keep mouth-to-output latency bounded despite mic/output clock drift.
         var (driftTarget, driftCeiling) = DriftBounds;

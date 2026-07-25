@@ -59,8 +59,16 @@ public partial class MainWindow : Window
     private bool startHeightSet;
     private static readonly AudioDeviceInfo NoDevice = new("", "(none)");
 
+    // Switch to the preferred mic as soon as it carries audio, but wait a while
+    // before handing back, so a pause in speech is not mistaken for a
+    // disconnect.
+    private static readonly TimeSpan PreferredSoundWindow = TimeSpan.FromSeconds(1.5);
+    private static readonly TimeSpan SwitchBackAfterSilence = TimeSpan.FromSeconds(8);
+
     private DeviceWatcher? deviceWatcher;
     private DispatcherTimer? deviceDebounce;
+    private DispatcherTimer? autoSwitchTimer;
+    private readonly MicActivityProbe probe = new();
     private string? activeInputId;
     private HotkeyManager? hotkeys;
     private WinForms.NotifyIcon? trayIcon;
@@ -146,8 +154,10 @@ public partial class MainWindow : Window
             }
             CollectSettings();
             settings.Save();
+            autoSwitchTimer?.Stop();
             deviceDebounce?.Stop();
             deviceWatcher?.Dispose();
+            probe.Dispose();
             hotkeys?.Dispose();
             engine.Dispose();
             if (trayIcon != null)
@@ -509,17 +519,68 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The mic to actually run with: the auto-switch device when it is
-    /// connected, otherwise the primary one.
+    /// The mic to actually run with: the auto-switch device while it is
+    /// carrying audio, otherwise the primary one.
     /// </summary>
     private AudioDeviceInfo? ResolveInputDevice()
     {
         var available = AudioDevices.GetCaptureDevices();
         var ids = available.Select(d => d.Id).ToHashSet();
         string? primary = (comboMic.SelectedItem as AudioDeviceInfo)?.Id;
-        string? preferred = (comboMicPreferred.SelectedItem as AudioDeviceInfo)?.Id;
-        string? chosen = AudioDevices.ChooseInput(preferred, primary, ids);
+        string? preferred = PreferredInputId();
+        string? chosen = AudioDevices.ChooseInput(preferred, primary, ids, PreferredHasSound(preferred));
         return chosen == null ? null : available.First(d => d.Id == chosen);
+    }
+
+    private string? PreferredInputId()
+    {
+        string? id = (comboMicPreferred.SelectedItem as AudioDeviceInfo)?.Id;
+        return string.IsNullOrEmpty(id) ? null : id;
+    }
+
+    /// <summary>
+    /// Whether the preferred mic is currently carrying audio. While it is the
+    /// active input the engine's own stream answers that; otherwise the probe
+    /// listening to it does.
+    /// </summary>
+    private bool PreferredHasSound(string? preferredId)
+    {
+        if (preferredId == null) return false;
+        if (engine.IsRunning && activeInputId == preferredId)
+            return engine.SinceInputSound < SwitchBackAfterSilence;
+        return probe.DeviceId == preferredId && probe.HasSoundWithin(PreferredSoundWindow);
+    }
+
+    /// <summary>
+    /// Keeps a probe on the preferred mic whenever it is not the one in use, so
+    /// its activity can be seen without routing it anywhere.
+    /// </summary>
+    private void UpdateProbe()
+    {
+        string? preferred = PreferredInputId();
+        if (preferred == null || (engine.IsRunning && activeInputId == preferred))
+        {
+            probe.Stop();
+            return;
+        }
+        try
+        {
+            probe.Watch(AudioDevices.GetDevice(preferred));
+        }
+        catch
+        {
+            probe.Stop(); // device vanished between enumeration and opening
+        }
+    }
+
+    private void EvaluateAutoSwitch()
+    {
+        if (!engine.IsRunning || PreferredInputId() == null) return;
+        var chosen = ResolveInputDevice();
+        if (chosen != null && chosen.Id != activeInputId)
+            StartEngine();
+        else
+            UpdateProbe();
     }
 
     private void StartEngine()
@@ -535,10 +596,19 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (AudioDevices.IsVirtualCableLoop(mic.Name, render.Name))
+        {
+            StopEngine();
+            txtStatus.Text = $"\"{mic.Name}\" is the other end of \"{render.Name}\" — " +
+                             "capturing it would feed the output back into itself. Pick a real microphone.";
+            return;
+        }
+
         try
         {
             engine.Start(AudioDevices.GetDevice(mic.Id), AudioDevices.GetDevice(render.Id));
             activeInputId = mic.Id;
+            UpdateProbe();
             ApplyMonitor();
             btnStartStop.Content = "Stop";
             txtStatus.Text = $"Running — {mic.Name}  →  {render.Name}  (~{engine.EstimatedLatencyMs} ms)";
@@ -575,6 +645,13 @@ public partial class MainWindow : Window
             deviceDebounce!.Stop();
             deviceDebounce.Start();
         });
+
+        // Presence changes alone cannot tell whether a virtual mic is live, so
+        // poll its activity as well.
+        autoSwitchTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        autoSwitchTimer.Tick += (_, _) => EvaluateAutoSwitch();
+        autoSwitchTimer.Start();
+        UpdateProbe();
     }
 
     private void OnDevicesChanged()

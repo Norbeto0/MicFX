@@ -31,9 +31,11 @@ mic -> gain -> noise suppression -> gate -> EQ -> compressor -> voice effect
 - Profiles for saving and switching complete configurations, also from the
   tray menu
 - Two microphone inputs: a primary mic plus an optional auto-switch mic that
-  takes over whenever it is connected (e.g. a VR headset mic appearing when
-  Virtual Desktop starts) and hands back when it disconnects — applications
-  downstream keep reading the same virtual cable
+  takes over whenever it is actually carrying audio (e.g. a VR headset mic once
+  the headset connects) and hands back when it goes idle — applications
+  downstream keep reading the same virtual cable. Virtual microphones stay
+  listed in Windows whether or not anything is streaming through them, so the
+  switch is driven by audio activity rather than by device presence
 - Monitoring on a separate output device with independent levels for your own
   voice and the soundboard, so you can hear clips loudly while keeping your
   own voice quiet
