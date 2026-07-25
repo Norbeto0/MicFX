@@ -35,9 +35,15 @@ public class Profile
 public class AppSettings
 {
     public string? InputDeviceId { get; set; }
+    /// <summary>Optional mic that takes over automatically whenever it is connected.</summary>
+    public string? PreferredInputDeviceId { get; set; }
+    /// <summary>Friendly name of the above, so it can still be shown while unplugged.</summary>
+    public string? PreferredInputDeviceName { get; set; }
     public string? OutputDeviceId { get; set; }
     public string? MonitorDeviceId { get; set; }
     public bool MonitorEnabled { get; set; }
+    public float MonitorVoiceVolume { get; set; } = 1f;
+    public float MonitorSoundVolume { get; set; } = 1f;
     public float MicGain { get; set; } = 1f;
     public float MasterVolume { get; set; } = 1f;
     public float SoundboardVolume { get; set; } = 0.8f;

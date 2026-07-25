@@ -35,6 +35,19 @@ public static class AudioDevices
             : null;
     }
 
+    /// <summary>
+    /// Picks the capture device to run with: the preferred one whenever it is
+    /// plugged in (e.g. a VR headset mic that appears when Virtual Desktop
+    /// starts), otherwise the primary one. Returns null when neither is
+    /// available.
+    /// </summary>
+    public static string? ChooseInput(string? preferredId, string? primaryId, IReadOnlyCollection<string> availableIds)
+    {
+        if (!string.IsNullOrEmpty(preferredId) && availableIds.Contains(preferredId)) return preferredId;
+        if (!string.IsNullOrEmpty(primaryId) && availableIds.Contains(primaryId)) return primaryId;
+        return null;
+    }
+
     public static string? GetDefaultCaptureDeviceId()
     {
         var enumerator = new MMDeviceEnumerator();

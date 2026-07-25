@@ -129,50 +129,91 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
                 <GroupBox Grid.Row="0" Header="DEVICES">
                     <StackPanel>
                         <TextBlock Text="Microphone" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
                         <ComboBox x:Name="comboMic" Margin="0,2,0,8" SelectionChanged="Device_SelectionChanged"/>
+                        <TextBlock Text="Auto-switch to (when connected)" FontSize="11"
+                                   Foreground="{StaticResource SubtleTextBrush}"
+                                   ToolTip="This mic takes over whenever it is plugged in — e.g. a VR headset mic that appears when Virtual Desktop connects. Everything downstream keeps reading the same virtual cable."/>
+                        <ComboBox x:Name="comboMicPreferred" Margin="0,2,0,8" SelectionChanged="Device_SelectionChanged"/>
                         <TextBlock Text="Output (your virtual cable, e.g. CABLE Input)" FontSize="11"
                                    Foreground="{StaticResource SubtleTextBrush}"/>
                         <ComboBox x:Name="comboOutput" Margin="0,2,0,8" SelectionChanged="Device_SelectionChanged"/>
-                        <TextBlock Text="Monitor (your headphones)" FontSize="11"
-                                   Foreground="{StaticResource SubtleTextBrush}"/>
-                        <ComboBox x:Name="comboMonitor" Margin="0,2,0,8" SelectionChanged="Monitor_Changed"/>
-                        <DockPanel>
-                            <Button Content="Refresh" DockPanel.Dock="Right" Click="RefreshDevices_Click"/>
-                            <CheckBox x:Name="chkMonitor" Content="Listen to myself"
-                                      Checked="Monitor_Changed" Unchecked="Monitor_Changed"/>
-                        </DockPanel>
+                        <Button Content="Refresh" HorizontalAlignment="Right" Click="RefreshDevices_Click"/>
                     </StackPanel>
                 </GroupBox>
 
                 <GroupBox Grid.Row="1" Header="LEVELS">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <DockPanel>
+                                <TextBlock x:Name="lblMicGain" DockPanel.Dock="Right" Text="100%" FontSize="11"
+                                           Foreground="{StaticResource SubtleTextBrush}"/>
+                                <TextBlock Text="Mic gain" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
+                            </DockPanel>
+                            <Slider x:Name="sliderMicGain" Minimum="0" Maximum="2" Value="1"
+                                    ValueChanged="MicGain_Changed" Margin="0,2,0,6"/>
+                            <TextBlock Text="Input" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
+                            <ProgressBar x:Name="meterIn" Minimum="0" Maximum="100" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <DockPanel>
+                                <TextBlock x:Name="lblMaster" DockPanel.Dock="Right" Text="100%" FontSize="11"
+                                           Foreground="{StaticResource SubtleTextBrush}"/>
+                                <TextBlock Text="Output volume" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
+                            </DockPanel>
+                            <Slider x:Name="sliderMaster" Minimum="0" Maximum="2" Value="1"
+                                    ValueChanged="Master_Changed" Margin="0,2,0,6"/>
+                            <TextBlock Text="Output" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
+                            <ProgressBar x:Name="meterOut" Minimum="0" Maximum="100" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Grid.Row="2" Header="MONITOR (YOUR HEADPHONES)">
                     <StackPanel>
-                        <DockPanel>
-                            <TextBlock x:Name="lblMicGain" DockPanel.Dock="Right" Text="100%" FontSize="11"
-                                       Foreground="{StaticResource SubtleTextBrush}"/>
-                            <TextBlock Text="Mic gain" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
-                        </DockPanel>
-                        <Slider x:Name="sliderMicGain" Minimum="0" Maximum="2" Value="1"
-                                ValueChanged="MicGain_Changed" Margin="0,2,0,6"/>
-                        <TextBlock Text="Input" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
-                        <ProgressBar x:Name="meterIn" Minimum="0" Maximum="100" Margin="0,2,0,6"/>
-                        <TextBlock Text="Output" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
-                        <ProgressBar x:Name="meterOut" Minimum="0" Maximum="100" Margin="0,2,0,8"/>
-                        <DockPanel>
-                            <TextBlock x:Name="lblMaster" DockPanel.Dock="Right" Text="100%" FontSize="11"
-                                       Foreground="{StaticResource SubtleTextBrush}"/>
-                            <TextBlock Text="Output volume" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
-                        </DockPanel>
-                        <Slider x:Name="sliderMaster" Minimum="0" Maximum="2" Value="1"
-                                ValueChanged="Master_Changed" Margin="0,2,0,0"/>
+                        <ComboBox x:Name="comboMonitor" Margin="0,0,0,6" SelectionChanged="Monitor_Changed"/>
+                        <CheckBox x:Name="chkMonitor" Content="Listen in headphones"
+                                  Checked="Monitor_Changed" Unchecked="Monitor_Changed"
+                                  ToolTip="Hear your processed voice and the soundboard while you play"/>
+                        <Grid Margin="0,6,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <DockPanel>
+                                    <TextBlock x:Name="lblMonitorVoice" DockPanel.Dock="Right" Text="100%" FontSize="11"
+                                               Foreground="{StaticResource SubtleTextBrush}"/>
+                                    <TextBlock Text="My voice" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
+                                </DockPanel>
+                                <Slider x:Name="sliderMonitorVoice" Minimum="0" Maximum="1.5" Value="1"
+                                        ValueChanged="MonitorVolume_Changed" Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <DockPanel>
+                                    <TextBlock x:Name="lblMonitorSound" DockPanel.Dock="Right" Text="100%" FontSize="11"
+                                               Foreground="{StaticResource SubtleTextBrush}"/>
+                                    <TextBlock Text="Soundboard" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
+                                </DockPanel>
+                                <Slider x:Name="sliderMonitorSound" Minimum="0" Maximum="1.5" Value="1"
+                                        ValueChanged="MonitorVolume_Changed" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
                 </GroupBox>
 
-                <GroupBox Grid.Row="2" Header="CLEAN-UP" Margin="0">
+                <GroupBox Grid.Row="3" Header="CLEAN-UP" Margin="0">
                     <StackPanel>
                         <DockPanel>
                             <TextBlock x:Name="lblDenoise" DockPanel.Dock="Right" Text="18 dB" FontSize="11"

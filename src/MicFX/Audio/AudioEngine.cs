@@ -7,11 +7,15 @@ namespace MicFX.Audio;
 /// <summary>
 /// Owns the whole real-time graph:
 ///
-///   mic capture → resample → noise suppression → (mono→stereo) → gain → meter
-///     → gate → EQ → spectrum tap → compressor
-///     → pitch → ring-mod → megaphone → flanger → whisper → ghost → echo ─┐
-///                                                                        ├→ master → meter → tee → output
-///   soundboard clips → sub-mixer → soundboard volume ─────────────────────┘      (tee feeds the monitor output)
+///   mic capture → drift guard → resample → noise suppression → (mono→stereo)
+///     → gain → meter → gate → EQ → spectrum tap → compressor
+///     → pitch → ring-mod → megaphone → flanger → whisper → ghost → echo → tee ─┐
+///                                                                              ├→ master → meter → output
+///   soundboard clips → sub-mixer → soundboard volume → tee ─────────────────────┘
+///
+/// The two tees feed the monitor output through independent volume controls,
+/// so the user can hear the soundboard loudly while keeping their own voice
+/// quiet (or off) in their headphones.
 ///
 /// Everything runs at 48 kHz stereo IEEE float. Parameter setters are safe to
 /// call from the UI thread while the graph is running, and are remembered so a
@@ -31,12 +35,15 @@ public class AudioEngine : IDisposable
     private AudioFileReader? previewReader;
 
     private BufferedWaveProvider? micBuffer;
-    private BufferedWaveProvider? monitorBuffer;
+    private BufferedWaveProvider? monitorVoiceBuffer;
+    private BufferedWaveProvider? monitorSoundBuffer;
     private MixingSampleProvider? soundMixer;
 
     private VolumeSampleProvider? micVolume;
     private VolumeSampleProvider? soundboardVolume;
     private VolumeSampleProvider? masterVolume;
+    private VolumeSampleProvider? monitorVoiceVolume;
+    private VolumeSampleProvider? monitorSoundVolume;
     private RnNoiseSampleProvider? aiDenoise;
     private NoiseSuppressionSampleProvider? denoise;
     private NoiseGateSampleProvider? gate;
@@ -50,7 +57,8 @@ public class AudioEngine : IDisposable
     private WhisperSampleProvider? whisper;
     private GhostSampleProvider? ghost;
     private EchoSampleProvider? echo;
-    private TeeSampleProvider? tee;
+    private TeeSampleProvider? voiceTee;
+    private TeeSampleProvider? soundTee;
 
     private readonly List<(ISampleProvider Tail, AudioFileReader Reader)> activeClips = new();
     private readonly object clipLock = new();
@@ -71,6 +79,8 @@ public class AudioEngine : IDisposable
     private string effectName = "None";
     private int effectIntensity = 50;
     private string latencyMode = "Normal";
+    private float monitorVoice = 1f;
+    private float monitorSound = 1f;
 
     private float lastInputDb = -100f;
 
@@ -81,6 +91,27 @@ public class AudioEngine : IDisposable
 
     private int CaptureLatencyMs => latencyMode is "Low" or "Lowest" ? 10 : 20;
     private int OutputLatencyMs => latencyMode switch { "Lowest" => 20, "Low" => 25, _ => 50 };
+
+    /// <summary>
+    /// Drift-guard bounds, scaled to the latency mode. The target must stay
+    /// above one output pull so a correction can't leave the buffer too empty
+    /// to satisfy the next read (which would insert a click of silence); the
+    /// ceiling caps how far latency can drift upward before being trimmed.
+    /// </summary>
+    private (int Target, int Ceiling) DriftBounds =>
+        (OutputLatencyMs + CaptureLatencyMs + 10, OutputLatencyMs + CaptureLatencyMs + 60);
+
+    /// <summary>Estimated mouth-to-output latency in ms, for display.</summary>
+    public int EstimatedLatencyMs
+    {
+        get
+        {
+            int total = CaptureLatencyMs + OutputLatencyMs + 10; // + RNNoise framing
+            if (denoiseEnabled && denoiseMode == "Spectral") total += 5;
+            if (effectName is "Female" or "Deep" or "Chipmunk") total += 35;
+            return total;
+        }
+    }
 
     /// <summary>Takes effect on the next Start(); the UI restarts the engine after changing it.</summary>
     public void SetLatencyMode(string mode) => latencyMode = mode;
@@ -110,7 +141,8 @@ public class AudioEngine : IDisposable
         capture.DataAvailable += (_, e) => micBuffer?.AddSamples(e.Buffer, 0, e.BytesRecorded);
 
         // Keep mouth-to-output latency bounded despite mic/output clock drift.
-        ISampleProvider mic = new DriftCompensatingSampleProvider(micBuffer, targetMs: 40, ceilingMs: 140);
+        var (driftTarget, driftCeiling) = DriftBounds;
+        ISampleProvider mic = new DriftCompensatingSampleProvider(micBuffer, driftTarget, driftCeiling);
         if (mic.WaveFormat.SampleRate != SampleRate)
             mic = new WdlResamplingSampleProvider(mic, SampleRate);
         aiDenoise = new RnNoiseSampleProvider(mic);
@@ -145,29 +177,29 @@ public class AudioEngine : IDisposable
         soundMixer.MixerInputEnded += OnClipEnded;
         soundboardVolume = new VolumeSampleProvider(soundMixer) { Volume = soundVol };
 
+        // Separate monitor taps for voice and soundboard, so each can have its
+        // own level in the user's headphones.
+        monitorVoiceBuffer = NewMonitorBuffer();
+        monitorSoundBuffer = NewMonitorBuffer();
+        voiceTee = new TeeSampleProvider(echo) { Sink = monitorVoiceBuffer, Enabled = false };
+        soundTee = new TeeSampleProvider(soundboardVolume) { Sink = monitorSoundBuffer, Enabled = false };
+
         var mainMixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels))
         {
             ReadFully = true
         };
-        mainMixer.AddMixerInput((ISampleProvider)echo);
-        mainMixer.AddMixerInput((ISampleProvider)soundboardVolume);
+        mainMixer.AddMixerInput((ISampleProvider)voiceTee);
+        mainMixer.AddMixerInput((ISampleProvider)soundTee);
 
         masterVolume = new VolumeSampleProvider(mainMixer) { Volume = master };
         var outputMeter = new MeteringSampleProvider(masterVolume, SampleRate / 20);
         outputMeter.StreamVolume += (_, e) =>
             LevelsAvailable?.Invoke(lastInputDb, ToDb(MaxOf(e.MaxSampleValues)));
 
-        monitorBuffer = new BufferedWaveProvider(WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels))
-        {
-            BufferDuration = TimeSpan.FromSeconds(2),
-            DiscardOnBufferOverflow = true
-        };
-        tee = new TeeSampleProvider(outputMeter) { Sink = monitorBuffer, Enabled = false };
-
         ApplyEffect(effectName, effectIntensity);
 
         output = new WasapiOut(render, AudioClientShareMode.Shared, true, OutputLatencyMs);
-        output.Init(new SampleToWaveProvider(tee));
+        output.Init(new SampleToWaveProvider(outputMeter));
 
         output.Play();
         IsRunning = true;
@@ -218,22 +250,63 @@ public class AudioEngine : IDisposable
         return shared;
     }
 
-    /// <summary>Enable/disable self-monitoring on the given render device. Safe to call any time while running.</summary>
+    private static BufferedWaveProvider NewMonitorBuffer() =>
+        new(WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels))
+        {
+            BufferDuration = TimeSpan.FromSeconds(2),
+            DiscardOnBufferOverflow = true
+        };
+
+    /// <summary>
+    /// Enable/disable monitoring on the given render device. Rebuilds the
+    /// monitor chain, so call it only when the device or the on/off state
+    /// changes — use SetMonitorVolumes for live level changes.
+    /// </summary>
     public void SetMonitor(MMDevice? device, bool enabled)
     {
-        if (tee != null) tee.Enabled = false;
+        if (voiceTee != null) voiceTee.Enabled = false;
+        if (soundTee != null) soundTee.Enabled = false;
         try { monitorOutput?.Stop(); } catch { /* device may already be gone */ }
         monitorOutput?.Dispose();
         monitorOutput = null;
-        monitorBuffer?.ClearBuffer();
+        monitorVoiceVolume = null;
+        monitorSoundVolume = null;
+        monitorVoiceBuffer?.ClearBuffer();
+        monitorSoundBuffer?.ClearBuffer();
 
-        if (!IsRunning || !enabled || device == null || tee == null || monitorBuffer == null)
+        if (!IsRunning || !enabled || device == null ||
+            voiceTee == null || soundTee == null ||
+            monitorVoiceBuffer == null || monitorSoundBuffer == null)
             return;
 
+        // The monitor device has its own clock too, so guard both taps against drift.
+        var (target, ceiling) = DriftBounds;
+        monitorVoiceVolume = new VolumeSampleProvider(
+            new DriftCompensatingSampleProvider(monitorVoiceBuffer, target, ceiling)) { Volume = monitorVoice };
+        monitorSoundVolume = new VolumeSampleProvider(
+            new DriftCompensatingSampleProvider(monitorSoundBuffer, target, ceiling)) { Volume = monitorSound };
+
+        var monitorMixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels))
+        {
+            ReadFully = true
+        };
+        monitorMixer.AddMixerInput((ISampleProvider)monitorVoiceVolume);
+        monitorMixer.AddMixerInput((ISampleProvider)monitorSoundVolume);
+
         monitorOutput = new WasapiOut(device, AudioClientShareMode.Shared, true, OutputLatencyMs);
-        monitorOutput.Init(monitorBuffer);
+        monitorOutput.Init(new SampleToWaveProvider(monitorMixer));
         monitorOutput.Play();
-        tee.Enabled = true;
+        voiceTee.Enabled = true;
+        soundTee.Enabled = true;
+    }
+
+    /// <summary>Live monitor levels: how loud your own voice and the soundboard are in your headphones.</summary>
+    public void SetMonitorVolumes(float voice, float soundboard)
+    {
+        monitorVoice = voice;
+        monitorSound = soundboard;
+        if (monitorVoiceVolume != null) monitorVoiceVolume.Volume = voice;
+        if (monitorSoundVolume != null) monitorSoundVolume.Volume = soundboard;
     }
 
     public void Stop()
@@ -251,11 +324,14 @@ public class AudioEngine : IDisposable
         monitorOutput = null;
         if (soundMixer != null) soundMixer.MixerInputEnded -= OnClipEnded;
         micBuffer = null;
-        monitorBuffer = null;
+        monitorVoiceBuffer = null;
+        monitorSoundBuffer = null;
         soundMixer = null;
         micVolume = null;
         soundboardVolume = null;
         masterVolume = null;
+        monitorVoiceVolume = null;
+        monitorSoundVolume = null;
         aiDenoise?.Dispose();
         aiDenoise = null;
         denoise = null;
@@ -270,7 +346,8 @@ public class AudioEngine : IDisposable
         whisper = null;
         ghost = null;
         echo = null;
-        tee = null;
+        voiceTee = null;
+        soundTee = null;
     }
 
     // ---------- live parameters ----------

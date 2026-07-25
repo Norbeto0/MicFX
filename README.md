@@ -30,7 +30,13 @@ mic -> gain -> noise suppression -> gate -> EQ -> compressor -> voice effect
   global hotkeys (Ctrl+Alt+1..9 by default), headphone-only preview
 - Profiles for saving and switching complete configurations, also from the
   tray menu
-- Self-monitoring on a separate output device
+- Two microphone inputs: a primary mic plus an optional auto-switch mic that
+  takes over whenever it is connected (e.g. a VR headset mic appearing when
+  Virtual Desktop starts) and hands back when it disconnects — applications
+  downstream keep reading the same virtual cable
+- Monitoring on a separate output device with independent levels for your own
+  voice and the soundboard, so you can hear clips loudly while keeping your
+  own voice quiet
 - Input/output level meters, mic gain, master volume
 - Latency modes in the settings menu: Normal (~90 ms mouth-to-app, safest),
   Low (smaller buffers), Lowest (additionally opens the mic in WASAPI
@@ -94,7 +100,9 @@ installer and creates the GitHub release with all three assets.
 src/MicFX/
   Audio/
     AudioEngine.cs               real-time graph, start/stop, live parameters
-    AudioDevices.cs              WASAPI endpoint enumeration
+    AudioDevices.cs              WASAPI endpoint enumeration and input selection
+    DeviceWatcher.cs             endpoint add/remove notifications for auto-switching
+    DriftCompensatingSampleProvider.cs  bounds latency against clock drift
     RnNoiseSampleProvider.cs     RNNoise (ML) denoiser, P/Invoke wrapper
     NoiseSuppressionSampleProvider.cs  spectral denoiser
     NoiseGateSampleProvider.cs   envelope-follower gate

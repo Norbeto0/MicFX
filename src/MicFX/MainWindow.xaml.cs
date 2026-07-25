@@ -57,6 +57,11 @@ public partial class MainWindow : Window
 
     private float[] eqFrequencies = EqualizerSampleProvider.BuildFrequencies(10);
     private bool startHeightSet;
+    private static readonly AudioDeviceInfo NoDevice = new("", "(none)");
+
+    private DeviceWatcher? deviceWatcher;
+    private DispatcherTimer? deviceDebounce;
+    private string? activeInputId;
     private HotkeyManager? hotkeys;
     private WinForms.NotifyIcon? trayIcon;
     private WinForms.ToolStripMenuItem? trayProfilesMenu;
@@ -109,6 +114,7 @@ public partial class MainWindow : Window
         // Everything below must not depend on the window being visible —
         // with --minimized (run on boot) the window starts hidden in the tray.
         CreateTrayIcon();
+        StartDeviceWatcher();
         hotkeys = new HotkeyManager(this);
         hotkeys.HotkeyPressed += id => Dispatcher.BeginInvoke(() => PlaySlot(id));
         RefreshHotkeys();
@@ -140,6 +146,8 @@ public partial class MainWindow : Window
             }
             CollectSettings();
             settings.Save();
+            deviceDebounce?.Stop();
+            deviceWatcher?.Dispose();
             hotkeys?.Dispose();
             engine.Dispose();
             if (trayIcon != null)
@@ -307,12 +315,27 @@ public partial class MainWindow : Window
         initializing = true;
 
         var selectedMic = (comboMic.SelectedItem as AudioDeviceInfo)?.Id ?? settings.InputDeviceId;
+        var selectedPreferred = (comboMicPreferred.SelectedItem as AudioDeviceInfo)?.Id
+                                ?? settings.PreferredInputDeviceId;
         var selectedOut = (comboOutput.SelectedItem as AudioDeviceInfo)?.Id ?? settings.OutputDeviceId;
         var selectedMon = (comboMonitor.SelectedItem as AudioDeviceInfo)?.Id
                           ?? settings.MonitorDeviceId
                           ?? AudioDevices.GetDefaultRenderDeviceId();
 
-        comboMic.ItemsSource = AudioDevices.GetCaptureDevices();
+        var captureDevices = AudioDevices.GetCaptureDevices();
+        comboMic.ItemsSource = captureDevices;
+
+        // The auto-switch list keeps a remembered device even while it is
+        // unplugged, so the choice survives the headset being disconnected.
+        var preferredItems = new List<AudioDeviceInfo> { NoDevice };
+        preferredItems.AddRange(captureDevices);
+        if (!string.IsNullOrEmpty(selectedPreferred) && preferredItems.All(d => d.Id != selectedPreferred))
+        {
+            string remembered = settings.PreferredInputDeviceName ?? "remembered device";
+            preferredItems.Add(new AudioDeviceInfo(selectedPreferred, $"{remembered} (not connected)"));
+        }
+        comboMicPreferred.ItemsSource = preferredItems;
+
         var renderDevices = AudioDevices.GetRenderDevices();
         comboOutput.ItemsSource = renderDevices;
         comboMonitor.ItemsSource = renderDevices.ToList();
@@ -320,6 +343,9 @@ public partial class MainWindow : Window
         SelectById(comboMic, selectedMic);
         SelectById(comboOutput, selectedOut);
         SelectById(comboMonitor, selectedMon);
+        SelectById(comboMicPreferred, selectedPreferred);
+        if (comboMicPreferred.SelectedItem == null)
+            comboMicPreferred.SelectedItem = NoDevice;
 
         if (comboMic.SelectedItem == null)
             SelectById(comboMic, AudioDevices.GetDefaultCaptureDeviceId());
@@ -362,6 +388,9 @@ public partial class MainWindow : Window
         chkComp.IsChecked = settings.CompressorEnabled;
         sliderComp.Value = settings.CompressorAmount;
         chkMonitor.IsChecked = settings.MonitorEnabled;
+        sliderMonitorVoice.Value = settings.MonitorVoiceVolume;
+        sliderMonitorSound.Value = settings.MonitorSoundVolume;
+        engine.SetMonitorVolumes(settings.MonitorVoiceVolume, settings.MonitorSoundVolume);
         sliderIntensity.Value = settings.EffectIntensity;
         chkShowEffects.IsChecked = settings.ShowVoiceEffects;
         ApplyEffectsPanelVisibility();
@@ -425,9 +454,22 @@ public partial class MainWindow : Window
     private void CollectSettings()
     {
         settings.InputDeviceId = (comboMic.SelectedItem as AudioDeviceInfo)?.Id;
+        if (comboMicPreferred.SelectedItem is AudioDeviceInfo preferred && preferred.Id.Length > 0)
+        {
+            settings.PreferredInputDeviceId = preferred.Id;
+            // Strip the "(not connected)" suffix so it isn't baked into the name.
+            settings.PreferredInputDeviceName = preferred.Name.Replace(" (not connected)", "");
+        }
+        else
+        {
+            settings.PreferredInputDeviceId = null;
+            settings.PreferredInputDeviceName = null;
+        }
         settings.OutputDeviceId = (comboOutput.SelectedItem as AudioDeviceInfo)?.Id;
         settings.MonitorDeviceId = (comboMonitor.SelectedItem as AudioDeviceInfo)?.Id;
         settings.MonitorEnabled = chkMonitor.IsChecked == true;
+        settings.MonitorVoiceVolume = (float)sliderMonitorVoice.Value;
+        settings.MonitorSoundVolume = (float)sliderMonitorSound.Value;
         settings.MicGain = (float)sliderMicGain.Value;
         settings.MasterVolume = (float)sliderMaster.Value;
         settings.SoundboardVolume = (float)sliderSoundVol.Value;
@@ -466,30 +508,89 @@ public partial class MainWindow : Window
             StartEngine();
     }
 
+    /// <summary>
+    /// The mic to actually run with: the auto-switch device when it is
+    /// connected, otherwise the primary one.
+    /// </summary>
+    private AudioDeviceInfo? ResolveInputDevice()
+    {
+        var available = AudioDevices.GetCaptureDevices();
+        var ids = available.Select(d => d.Id).ToHashSet();
+        string? primary = (comboMic.SelectedItem as AudioDeviceInfo)?.Id;
+        string? preferred = (comboMicPreferred.SelectedItem as AudioDeviceInfo)?.Id;
+        string? chosen = AudioDevices.ChooseInput(preferred, primary, ids);
+        return chosen == null ? null : available.First(d => d.Id == chosen);
+    }
+
     private void StartEngine()
     {
-        if (comboMic.SelectedItem is not AudioDeviceInfo mic ||
-            comboOutput.SelectedItem is not AudioDeviceInfo render)
+        if (comboOutput.SelectedItem is not AudioDeviceInfo render)
         {
-            txtStatus.Text = "Select a microphone and an output device first.";
+            txtStatus.Text = "Select an output device first.";
+            return;
+        }
+        if (ResolveInputDevice() is not AudioDeviceInfo mic)
+        {
+            txtStatus.Text = "Select a microphone first.";
             return;
         }
 
         try
         {
             engine.Start(AudioDevices.GetDevice(mic.Id), AudioDevices.GetDevice(render.Id));
+            activeInputId = mic.Id;
             ApplyMonitor();
             btnStartStop.Content = "Stop";
-            txtStatus.Text = $"Running — {mic.Name}  →  {render.Name}";
+            txtStatus.Text = $"Running — {mic.Name}  →  {render.Name}  (~{engine.EstimatedLatencyMs} ms)";
             if (engine.CaptureNote != null)
                 txtStatus.Text += $"  ({engine.CaptureNote})";
         }
         catch (Exception ex)
         {
             engine.Stop();
+            activeInputId = null;
             btnStartStop.Content = "Start";
             txtStatus.Text = "Error: " + ex.Message;
         }
+    }
+
+    /// <summary>
+    /// Watches for devices appearing and disappearing so the preferred mic can
+    /// take over (and hand back) without touching anything downstream.
+    /// Notifications arrive on a COM thread and can burst, so they are
+    /// marshalled to the UI thread and debounced.
+    /// </summary>
+    private void StartDeviceWatcher()
+    {
+        deviceDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+        deviceDebounce.Tick += (_, _) =>
+        {
+            deviceDebounce!.Stop();
+            OnDevicesChanged();
+        };
+
+        deviceWatcher = new DeviceWatcher();
+        deviceWatcher.Changed += () => Dispatcher.BeginInvoke(() =>
+        {
+            deviceDebounce!.Stop();
+            deviceDebounce.Start();
+        });
+    }
+
+    private void OnDevicesChanged()
+    {
+        PopulateDevices();
+        if (!engine.IsRunning) return;
+
+        var chosen = ResolveInputDevice();
+        if (chosen == null)
+        {
+            StopEngine();
+            txtStatus.Text = "Microphone disconnected.";
+            return;
+        }
+        if (chosen.Id != activeInputId)
+            StartEngine(); // restarts on the newly preferred/available mic
     }
 
     private void StopEngine()
@@ -968,6 +1069,14 @@ public partial class MainWindow : Window
     {
         if (initializing) return;
         ApplyMonitor();
+    }
+
+    private void MonitorVolume_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (lblMonitorVoice != null) lblMonitorVoice.Text = $"{sliderMonitorVoice.Value * 100:0}%";
+        if (lblMonitorSound != null) lblMonitorSound.Text = $"{sliderMonitorSound.Value * 100:0}%";
+        if (initializing) return;
+        engine.SetMonitorVolumes((float)sliderMonitorVoice.Value, (float)sliderMonitorSound.Value);
     }
 
     private void MicGain_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
