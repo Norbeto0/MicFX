@@ -1,7 +1,7 @@
 <Window x:Class="MicFX.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="MicFX — Mic Effects Station"
+        Title="MicFX — Microphone Processor"
         Height="700" Width="1160"
         MinHeight="620" MinWidth="1020"
         Background="{StaticResource WindowBrush}"
@@ -47,10 +47,7 @@
                     <StackPanel Margin="14">
                         <TextBlock Text="SETTINGS" FontWeight="SemiBold"
                                    Foreground="{StaticResource SubtleTextBrush}" Margin="0,0,0,10"/>
-                        <CheckBox x:Name="chkShowEffects" Content="Show voice effects panel"
-                                  Checked="ShowEffects_Changed" Unchecked="ShowEffects_Changed"
-                                  ToolTip="Hiding the panel also switches the effect back to None"/>
-                        <CheckBox x:Name="chkRunOnBoot" Content="Run on Windows startup" Margin="0,10,0,0"
+                        <CheckBox x:Name="chkRunOnBoot" Content="Run on Windows startup"
                                   Checked="RunOnBoot_Changed" Unchecked="RunOnBoot_Changed"/>
                         <DockPanel Margin="0,12,0,0">
                             <TextBlock x:Name="lblEqBands" DockPanel.Dock="Right" Text="10" FontSize="11"
@@ -111,7 +108,7 @@
             </DockPanel>
         </Border>
 
-        <!-- Main area: full-height left column; right side = effects+EQ on top, soundboard strip below -->
+        <!-- Main area: full-height left column; right side = EQ on top, soundboard strip below -->
         <Grid Grid.Row="2" x:Name="mainArea">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="300"/>
@@ -251,58 +248,20 @@
                 </GroupBox>
             </Grid>
 
-            <!-- Right top: voice effects (optional) + equalizer -->
-            <Grid Grid.Column="1" Grid.Row="0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-
-                <!-- Voice effects (hidden by default — toggle in the ☰ menu) -->
-                <GroupBox x:Name="effectsPanel" Grid.Column="0" Header="VOICE EFFECT"
-                          Width="230" Margin="0,0,10,0" Visibility="Collapsed">
-                    <DockPanel>
-                        <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
-                            <DockPanel>
-                                <TextBlock x:Name="lblIntensity" DockPanel.Dock="Right" Text="50" FontSize="11"
-                                           Foreground="{StaticResource SubtleTextBrush}"/>
-                                <TextBlock Text="Intensity" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
-                            </DockPanel>
-                            <Slider x:Name="sliderIntensity" Minimum="0" Maximum="100" Value="50"
-                                    ValueChanged="Intensity_Changed" Margin="0,2,0,0"/>
-                        </StackPanel>
-                        <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <ListBox x:Name="lstEffects" SelectionChanged="Effect_Changed">
-                                <ListBoxItem Content="None" Tag="None" IsSelected="True"/>
-                                <ListBoxItem Content="🤖  Robot" Tag="Robot"/>
-                                <ListBoxItem Content="👩  Female" Tag="Female"/>
-                                <ListBoxItem Content="🎙  Deep Male" Tag="Deep"/>
-                                <ListBoxItem Content="🐿  Chipmunk" Tag="Chipmunk"/>
-                                <ListBoxItem Content="🕳  Cave Echo" Tag="Cave"/>
-                                <ListBoxItem Content="📢  Megaphone" Tag="Megaphone"/>
-                                <ListBoxItem Content="👽  Alien" Tag="Alien"/>
-                                <ListBoxItem Content="🤫  Whisper" Tag="Whisper"/>
-                                <ListBoxItem Content="👻  Ghost" Tag="Ghost"/>
-                            </ListBox>
-                        </ScrollViewer>
+            <!-- Right top: equalizer with the live spectrum behind it -->
+            <GroupBox Grid.Column="1" Grid.Row="0" Header="EQUALIZER">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <Button Content="Reset" DockPanel.Dock="Right" Click="EqReset_Click"/>
+                        <ComboBox x:Name="comboEqPreset" Width="180" HorizontalAlignment="Left"
+                                  SelectionChanged="EqPreset_Changed"/>
                     </DockPanel>
-                </GroupBox>
-
-                <!-- Equalizer with spectrum behind it -->
-                <GroupBox Grid.Column="1" Header="EQUALIZER">
-                    <DockPanel>
-                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-                            <Button Content="Reset" DockPanel.Dock="Right" Click="EqReset_Click"/>
-                            <ComboBox x:Name="comboEqPreset" Width="180" HorizontalAlignment="Left"
-                                      SelectionChanged="EqPreset_Changed"/>
-                        </DockPanel>
-                        <Grid>
-                            <UniformGrid x:Name="spectrumPanel" Rows="1" Margin="6,16,6,20"/>
-                            <UniformGrid x:Name="eqPanel" Rows="1"/>
-                        </Grid>
-                    </DockPanel>
-                </GroupBox>
-            </Grid>
+                    <Grid>
+                        <UniformGrid x:Name="spectrumPanel" Rows="1" Margin="6,16,6,20"/>
+                        <UniformGrid x:Name="eqPanel" Rows="1"/>
+                    </Grid>
+                </DockPanel>
+            </GroupBox>
 
             <!-- Right bottom: soundboard strip -->
             <GroupBox Grid.Column="1" Grid.Row="1" Header="SOUNDBOARD" Margin="0,10,0,0">

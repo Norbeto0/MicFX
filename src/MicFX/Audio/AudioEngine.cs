@@ -8,10 +8,9 @@ namespace MicFX.Audio;
 /// Owns the whole real-time graph:
 ///
 ///   mic capture → drift guard → resample → noise suppression → (mono→stereo)
-///     → gain → meter → gate → EQ → spectrum tap → compressor
-///     → pitch → ring-mod → megaphone → flanger → whisper → ghost → echo → tee ─┐
-///                                                                              ├→ master → meter → output
-///   soundboard clips → sub-mixer → soundboard volume → tee ─────────────────────┘
+///     → gain → meter → gate → EQ → spectrum tap → compressor → tee ─┐
+///                                                                   ├→ master → meter → output
+///   soundboard clips → sub-mixer → soundboard volume → tee ──────────┘
 ///
 /// The two tees feed the monitor output through independent volume controls,
 /// so the user can hear the soundboard loudly while keeping their own voice
@@ -50,13 +49,6 @@ public class AudioEngine : IDisposable
     private EqualizerSampleProvider? eq;
     private SpectrumTapSampleProvider? spectrumTap;
     private CompressorSampleProvider? compressor;
-    private SmbPitchShiftingSampleProvider? pitch;
-    private RingModulatorSampleProvider? robot;
-    private MegaphoneSampleProvider? megaphone;
-    private FlangerSampleProvider? flanger;
-    private WhisperSampleProvider? whisper;
-    private GhostSampleProvider? ghost;
-    private EchoSampleProvider? echo;
     private TeeSampleProvider? voiceTee;
     private TeeSampleProvider? soundTee;
 
@@ -76,8 +68,6 @@ public class AudioEngine : IDisposable
     private string denoiseMode = "Ai";
     private bool compEnabled;
     private float compAmount = 50f;
-    private string effectName = "None";
-    private int effectIntensity = 50;
     private string latencyMode = "Normal";
     private float monitorVoice = 1f;
     private float monitorSound = 1f;
@@ -116,7 +106,6 @@ public class AudioEngine : IDisposable
         {
             int total = CaptureLatencyMs + OutputLatencyMs + 10; // + RNNoise framing
             if (denoiseEnabled && denoiseMode == "Spectral") total += 5;
-            if (effectName is "Female" or "Deep" or "Chipmunk") total += 35;
             return total;
         }
     }
@@ -176,14 +165,6 @@ public class AudioEngine : IDisposable
         compressor = new CompressorSampleProvider(spectrumTap) { Enabled = compEnabled };
         compressor.SetAmount(compAmount);
 
-        pitch = new SmbPitchShiftingSampleProvider(compressor, 2048, 4, 1f);
-        robot = new RingModulatorSampleProvider(pitch);
-        megaphone = new MegaphoneSampleProvider(robot);
-        flanger = new FlangerSampleProvider(megaphone);
-        whisper = new WhisperSampleProvider(flanger);
-        ghost = new GhostSampleProvider(whisper);
-        echo = new EchoSampleProvider(ghost);
-
         soundMixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels))
         {
             ReadFully = true
@@ -195,7 +176,7 @@ public class AudioEngine : IDisposable
         // own level in the user's headphones.
         monitorVoiceBuffer = NewMonitorBuffer();
         monitorSoundBuffer = NewMonitorBuffer();
-        voiceTee = new TeeSampleProvider(echo) { Sink = monitorVoiceBuffer, Enabled = false };
+        voiceTee = new TeeSampleProvider(compressor) { Sink = monitorVoiceBuffer, Enabled = false };
         soundTee = new TeeSampleProvider(soundboardVolume) { Sink = monitorSoundBuffer, Enabled = false };
 
         var mainMixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels))
@@ -209,8 +190,6 @@ public class AudioEngine : IDisposable
         var outputMeter = new MeteringSampleProvider(masterVolume, SampleRate / 20);
         outputMeter.StreamVolume += (_, e) =>
             LevelsAvailable?.Invoke(lastInputDb, ToDb(MaxOf(e.MaxSampleValues)));
-
-        ApplyEffect(effectName, effectIntensity);
 
         output = new WasapiOut(render, AudioClientShareMode.Shared, true, OutputLatencyMs);
         output.Init(new SampleToWaveProvider(outputMeter));
@@ -353,13 +332,6 @@ public class AudioEngine : IDisposable
         eq = null;
         spectrumTap = null;
         compressor = null;
-        pitch = null;
-        robot = null;
-        megaphone = null;
-        flanger = null;
-        whisper = null;
-        ghost = null;
-        echo = null;
         voiceTee = null;
         soundTee = null;
     }
@@ -445,69 +417,6 @@ public class AudioEngine : IDisposable
         eqGains = new float[eqBandCount];
         Array.Copy(gains, eqGains, Math.Min(gains.Length, eqGains.Length));
         eq?.SetBands(eqBandCount, eqGains);
-    }
-
-    public void SetEffect(string name, int intensity)
-    {
-        effectName = name;
-        effectIntensity = intensity;
-        ApplyEffect(name, intensity);
-    }
-
-    private void ApplyEffect(string name, int intensity)
-    {
-        if (pitch == null || robot == null || megaphone == null || flanger == null ||
-            whisper == null || ghost == null || echo == null)
-            return;
-
-        float t = Math.Clamp(intensity, 0, 100) / 100f;
-        pitch.PitchFactor = 1f;
-        robot.Enabled = false;
-        megaphone.Enabled = false;
-        flanger.Enabled = false;
-        whisper.Enabled = false;
-        ghost.Enabled = false;
-        echo.Enabled = false;
-
-        switch (name)
-        {
-            case "Robot":
-                robot.Enabled = true;
-                robot.Frequency = 25f + 75f * t;
-                robot.Mix = 0.9f;
-                break;
-            case "Female":
-                pitch.PitchFactor = 1.2f + 0.5f * t;
-                break;
-            case "Deep":
-                pitch.PitchFactor = 0.85f - 0.35f * t;
-                break;
-            case "Chipmunk":
-                pitch.PitchFactor = 1.4f + 0.6f * t;
-                break;
-            case "Cave":
-                echo.Enabled = true;
-                echo.Feedback = 0.15f + 0.45f * t;
-                echo.Mix = 0.3f + 0.3f * t;
-                break;
-            case "Megaphone":
-                megaphone.Enabled = true;
-                megaphone.Drive = 2f + 6f * t;
-                break;
-            case "Alien":
-                flanger.Enabled = true;
-                flanger.Rate = 0.15f + 1.35f * t;
-                flanger.Feedback = 0.3f + 0.35f * t;
-                break;
-            case "Whisper":
-                whisper.Enabled = true;
-                whisper.NoiseLevel = 0.4f + 0.8f * t;
-                break;
-            case "Ghost":
-                ghost.Enabled = true;
-                ghost.Mix = 0.25f + 0.5f * t;
-                break;
-        }
     }
 
     // ---------- spectrum ----------

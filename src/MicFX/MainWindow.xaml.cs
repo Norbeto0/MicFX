@@ -91,7 +91,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         var version = Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
-        Title = $"MicFX v{version.Major}.{version.Minor}.{version.Build} — Mic Effects Station";
+        Title = $"MicFX v{version.Major}.{version.Minor}.{version.Build} — Microphone Processor";
         CleanUpAfterUpdate();
 
         settings.EqBandCount = Math.Clamp(settings.EqBandCount,
@@ -178,7 +178,7 @@ public partial class MainWindow : Window
         {
             Icon = new System.Drawing.Icon(iconStream),
             Visible = true,
-            Text = "MicFX — mic effects"
+            Text = "MicFX — microphone processor"
         };
         trayIcon.DoubleClick += (_, _) => ShowFromTray();
 
@@ -401,9 +401,6 @@ public partial class MainWindow : Window
         sliderMonitorVoice.Value = settings.MonitorVoiceVolume;
         sliderMonitorSound.Value = settings.MonitorSoundVolume;
         engine.SetMonitorVolumes(settings.MonitorVoiceVolume, settings.MonitorSoundVolume);
-        sliderIntensity.Value = settings.EffectIntensity;
-        chkShowEffects.IsChecked = settings.ShowVoiceEffects;
-        ApplyEffectsPanelVisibility();
         sliderEqBands.Value = settings.EqBandCount;
         lblEqBands.Text = settings.EqBandCount.ToString();
         foreach (ComboBoxItem item in comboLatency.Items)
@@ -416,10 +413,6 @@ public partial class MainWindow : Window
         }
         engine.SetLatencyMode(settings.LatencyMode);
 
-        // With the panel hidden there must be no invisible active effect.
-        if (!settings.ShowVoiceEffects)
-            settings.Effect = "None";
-        SelectEffect(settings.Effect);
 
         foreach (var clip in settings.Sounds)
         {
@@ -446,19 +439,6 @@ public partial class MainWindow : Window
         engine.SetDenoise(settings.DenoiseEnabled, settings.DenoiseStrengthDb, settings.DenoiseMode);
         engine.SetCompressor(settings.CompressorEnabled, settings.CompressorAmount);
         engine.SetEqBands(settings.EqBandCount, settings.EqGainsDb);
-        engine.SetEffect(settings.Effect, settings.EffectIntensity);
-    }
-
-    private void SelectEffect(string tag)
-    {
-        foreach (ListBoxItem item in lstEffects.Items)
-        {
-            if ((string)item.Tag == tag)
-            {
-                item.IsSelected = true;
-                return;
-            }
-        }
     }
 
     private void CollectSettings()
@@ -490,9 +470,6 @@ public partial class MainWindow : Window
         settings.DenoiseMode = CurrentDenoiseMode();
         settings.CompressorEnabled = chkComp.IsChecked == true;
         settings.CompressorAmount = (float)sliderComp.Value;
-        settings.Effect = CurrentEffectTag();
-        settings.EffectIntensity = (int)sliderIntensity.Value;
-        settings.ShowVoiceEffects = chkShowEffects.IsChecked == true;
         settings.EqBandCount = eqFrequencies.Length;
         settings.LatencyMode = CurrentLatencyMode();
         settings.ActiveProfile = comboProfile.SelectedItem as string;
@@ -710,9 +687,6 @@ public partial class MainWindow : Window
     }
 
     private static double DbToPercent(float db) => Math.Clamp((db + 60) / 60 * 100, 0, 100);
-
-    private string CurrentEffectTag() =>
-        (lstEffects.SelectedItem as ListBoxItem)?.Tag as string ?? "None";
 
     // ---------- spectrum ----------
 
@@ -1013,8 +987,6 @@ public partial class MainWindow : Window
         CompressorEnabled = chkComp.IsChecked == true,
         CompressorAmount = (float)sliderComp.Value,
         EqGainsDb = eqSliders.Select(s => (float)s.Value).ToArray(),
-        Effect = CurrentEffectTag(),
-        EffectIntensity = (int)sliderIntensity.Value,
     };
 
     private void ApplyProfile(Profile p)
@@ -1038,11 +1010,6 @@ public partial class MainWindow : Window
         var profileGains = MapGainsToBands(p.EqGainsDb, eqFrequencies);
         for (int i = 0; i < eqSliders.Count && i < profileGains.Length; i++)
             eqSliders[i].Value = profileGains[i];
-        sliderIntensity.Value = p.EffectIntensity;
-        // A profile that uses an effect brings the panel back so the change is visible.
-        if (p.Effect != "None" && chkShowEffects.IsChecked != true)
-            chkShowEffects.IsChecked = true;
-        SelectEffect(p.Effect);
         txtStatus.Text = $"Profile \"{p.Name}\" applied.";
     }
 
@@ -1104,21 +1071,6 @@ public partial class MainWindow : Window
     }
 
     private void RefreshDevices_Click(object sender, RoutedEventArgs e) => PopulateDevices();
-
-    private void ApplyEffectsPanelVisibility() =>
-        effectsPanel.Visibility = chkShowEffects.IsChecked == true
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-
-    private void ShowEffects_Changed(object sender, RoutedEventArgs e)
-    {
-        if (initializing) return;
-        settings.ShowVoiceEffects = chkShowEffects.IsChecked == true;
-        ApplyEffectsPanelVisibility();
-        // Never leave an invisible effect coloring the voice.
-        if (chkShowEffects.IsChecked != true && CurrentEffectTag() != "None")
-            SelectEffect("None");
-    }
 
     private void RunOnBoot_Changed(object sender, RoutedEventArgs e)
     {
@@ -1217,19 +1169,6 @@ public partial class MainWindow : Window
         if (lblComp != null) lblComp.Text = $"{sliderComp.Value:0}";
         if (initializing) return;
         engine.SetCompressor(chkComp.IsChecked == true, (float)sliderComp.Value);
-    }
-
-    private void Effect_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (initializing) return;
-        engine.SetEffect(CurrentEffectTag(), (int)sliderIntensity.Value);
-    }
-
-    private void Intensity_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (lblIntensity != null) lblIntensity.Text = $"{e.NewValue:0}";
-        if (initializing) return;
-        engine.SetEffect(CurrentEffectTag(), (int)e.NewValue);
     }
 
     private void EqPreset_Changed(object sender, SelectionChangedEventArgs e)

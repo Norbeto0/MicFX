@@ -7,22 +7,16 @@
 The binaries are unsigned, so SmartScreen may warn on first run
 (More info > Run anyway). In-app updates are not affected.
 
-### Fixed
+### Removed
 
-- Auto-switching now follows audio activity instead of device presence.
-  Virtual microphones such as Virtual Desktop's stay listed as "Ready" in
-  Windows whether or not the headset is connected, so the previous
-  presence-based rule handed the input over permanently as soon as the device
-  existed. MicFX now listens to the chosen auto-switch device in the
-  background and takes it over about a second after it starts carrying audio,
-  returning to the primary microphone after eight seconds of digital silence.
-  An idle virtual device emits exact digital silence, while any live
-  microphone carries a noise floor, which is what makes the two
-  distinguishable.
-- Selecting the recording end of the same virtual cable that MicFX writes to
-  (for example capturing "CABLE Output" while sending to "CABLE Input") is now
-  refused with an explanation instead of starting a feedback loop in which the
-  application processes its own output.
+- Voice effects (robot, female, deep, chipmunk, cave echo, megaphone, alien,
+  whisper, ghost) and the panel that hosted them. MicFX is a microphone
+  processing tool: EQ, noise suppression, gate, compressor, monitoring and a
+  soundboard. The signal path is correspondingly shorter, and the pitch
+  shifter that added roughly 35 ms of latency when a pitch effect was active
+  is gone with it.
+- Existing settings and profiles keep working; the stored effect selections
+  are ignored.
 
 ### First-time setup
 

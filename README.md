@@ -1,14 +1,14 @@
 # MicFX
 
 Real-time microphone processing for Windows: EQ, noise suppression, noise
-gate, compressor, voice effects and a soundboard on a single mic input. The
-processed signal is routed to a virtual audio device so other applications
-(Discord, OBS, games) can use it as their microphone.
+gate, compressor and a soundboard on a single mic input. The processed signal
+is routed to a virtual audio device so other applications (Discord, OBS,
+games) can use it as their microphone.
 
 Pipeline (WASAPI shared mode, 48 kHz float):
 
 ```
-mic -> gain -> noise suppression -> gate -> EQ -> compressor -> voice effect
+mic -> gain -> noise suppression -> gate -> EQ -> compressor
     -> (+ soundboard) -> master volume -> output device (virtual cable)
 ```
 
@@ -23,9 +23,6 @@ mic -> gain -> noise suppression -> gate -> EQ -> compressor -> voice effect
   in, so clips are never affected
 - Noise gate with adjustable threshold
 - Compressor ("voice leveler") with automatic make-up gain
-- Voice effects: robot, female, deep, chipmunk, cave echo, megaphone, alien,
-  whisper, ghost; one intensity control; panel hidden by default, enabled in
-  the settings menu
 - Soundboard mixed into the mic stream: per-clip volume, loop mode, custom
   global hotkeys (Ctrl+Alt+1..9 by default), headphone-only preview
 - Profiles for saving and switching complete configurations, also from the
@@ -61,8 +58,8 @@ processed signal:
    from the [releases page](../../releases). The binaries are unsigned, so
    SmartScreen may warn on first run.
 3. In MicFX: select your microphone as input, "CABLE Input" as output, press
-   Start. Optionally set your headphones as monitor and enable "Listen to
-   myself".
+   Start. Optionally pick your headphones under MONITOR and enable "Listen in
+   headphones".
 4. Point the target application at the cable:
 
 | Application | Setting |
@@ -91,9 +88,9 @@ installer and creates the GitHub release with all three assets.
 |---|---|
 | "Error: ... device in use" on Start | Another application holds the device in exclusive mode. Disable exclusive mode in the device's sound settings or close the other application. |
 | Discord hears nothing | Check MicFX output is CABLE Input, Discord input is CABLE Output, and the engine is running (meters move when you talk). |
-| Crackling or dropouts | Increase the WASAPI latency (the `50` ms in `AudioEngine.cs`) or close CPU-heavy applications. Pitch effects add roughly 40 ms of inherent latency. |
+| Crackling or dropouts | Switch the latency setting back to Normal in the settings menu, or close CPU-heavy applications. |
 | Hotkeys do not fire | Another application owns the combination. MicFX skips combinations it cannot register; assign a different one per clip. |
-| Callers hear an echo of themselves | Disable "Listen to myself", or make sure the monitor device is headphones rather than speakers. |
+| Callers hear an echo of themselves | Disable "Listen in headphones", or make sure the monitor device is headphones rather than speakers. |
 | Soundboard sounds broken or muffled to others | Discord's Krisp/noise suppression filters out non-voice audio, which includes soundboard clips. Disable noise suppression in Discord and enable MicFX's instead (CLEAN-UP > Noise suppression) — MicFX suppresses noise before the soundboard is mixed in. |
 
 ## Project layout
@@ -111,12 +108,6 @@ src/MicFX/
     CompressorSampleProvider.cs  compressor with auto make-up
     EqualizerSampleProvider.cs   10-20 band biquad peaking EQ
     SpectrumTapSampleProvider.cs sample window for the spectrum display
-    RingModulatorSampleProvider.cs  robot voice
-    MegaphoneSampleProvider.cs   bandpass + drive distortion
-    FlangerSampleProvider.cs     alien voice (swept delay)
-    WhisperSampleProvider.cs     envelope-modulated noise voice
-    GhostSampleProvider.cs       reverse echo
-    EchoSampleProvider.cs        cave echo (feedback delay)
     TeeSampleProvider.cs         split-off for self-monitoring
   Models/AppSettings.cs          JSON persistence, profiles
   HotkeyManager.cs               global hotkey registration

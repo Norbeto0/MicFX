@@ -28,8 +28,6 @@ public class Profile
     public bool CompressorEnabled { get; set; }
     public float CompressorAmount { get; set; } = 50f;
     public float[] EqGainsDb { get; set; } = new float[10];
-    public string Effect { get; set; } = "None";
-    public int EffectIntensity { get; set; } = 50;
 }
 
 public class AppSettings
@@ -55,13 +53,10 @@ public class AppSettings
     public bool CompressorEnabled { get; set; }
     public float CompressorAmount { get; set; } = 50f;
     public float[] EqGainsDb { get; set; } = new float[10];
-    public string Effect { get; set; } = "None";
-    public int EffectIntensity { get; set; } = 50;
     public List<SoundClipSetting> Sounds { get; set; } = new();
     public List<Profile> Profiles { get; set; } = new();
     public string? ActiveProfile { get; set; }
     public bool CableNoticeDismissed { get; set; }
-    public bool ShowVoiceEffects { get; set; }
     public int EqBandCount { get; set; } = 10;
     public string LatencyMode { get; set; } = "Normal";
 
