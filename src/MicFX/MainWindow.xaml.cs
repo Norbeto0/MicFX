@@ -1131,7 +1131,8 @@ public partial class MainWindow : Window
 
         engine.SetDenoise(chkDenoise.IsChecked == true, (float)sliderDenoise.Value, mode);
         if (chkDenoise.IsChecked == true && mode == "Ai" && !AudioEngine.AiDenoiseAvailable)
-            txtStatus.Text = "RNNoise library not found — using spectral suppression instead.";
+            txtStatus.Text = "AI suppression unavailable, using spectral instead " +
+                             $"({AudioEngine.AiDenoiseUnavailableReason ?? "unknown reason"}).";
     }
 
     private void Comp_Changed(object sender, RoutedEventArgs e)

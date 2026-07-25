@@ -37,7 +37,25 @@ jobs:
             ForEach-Object { "rnnoise-src/src/$_" }
           gcc -O3 -shared -static-libgcc -Irnnoise-src/include -Irnnoise-src/src @src -o src/MicFX/native/rnnoise.dll
           if (!(Test-Path src/MicFX/native/rnnoise.dll)) { throw 'rnnoise build failed' }
-          gcc --version | Select-Object -First 1
+          # The DLL is embedded into the assembly, so a dud would only surface at
+          # runtime on a user's machine — verify the entry points are exported.
+          if (Get-Command objdump -ErrorAction SilentlyContinue) {
+            $exports = objdump -p src/MicFX/native/rnnoise.dll | Out-String
+            foreach ($fn in 'rnnoise_create', 'rnnoise_destroy', 'rnnoise_process_frame') {
+              if ($exports -notmatch $fn) { throw "rnnoise.dll is missing the $fn export" }
+            }
+          } else {
+            Write-Host 'objdump unavailable; skipping export check'
+          }
+          '{0}: {1} bytes' -f 'rnnoise.dll', (Get-Item src/MicFX/native/rnnoise.dll).Length
+
+      - name: Verify RNNoise is embedded
+        shell: pwsh
+        run: |
+          $csproj = Get-Content src/MicFX/MicFX.csproj -Raw
+          if ($csproj -notmatch 'EmbeddedResource Include="native/rnnoise.dll"') {
+            throw 'rnnoise.dll is no longer embedded; it would not ship with the single-file build'
+          }
 
       - name: Publish self-contained exe
         run: >

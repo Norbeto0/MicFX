@@ -12,7 +12,7 @@
     <AssemblyName>MicFX</AssemblyName>
     <RootNamespace>MicFX</RootNamespace>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <Version>1.7.0</Version>
+    <Version>1.7.1</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,10 +30,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Built from pinned xiph/rnnoise source by the release workflow; local
-         builds without it fall back to the spectral suppressor at runtime. -->
-    <None Include="native/rnnoise.dll" Condition="Exists('native/rnnoise.dll')"
-          CopyToOutputDirectory="PreserveNewest" />
+    <!-- Built from pinned xiph/rnnoise source by the release workflow and
+         embedded, because every distribution form (single-file exe, installer)
+         ships MicFX.exe alone — a loose DLL beside it would not travel.
+         NativeLibraryLoader unpacks it at runtime. Local builds without the
+         file fall back to the spectral suppressor. -->
+    <EmbeddedResource Include="native/rnnoise.dll" Condition="Exists('native/rnnoise.dll')"
+                      LogicalName="MicFX.rnnoise.dll" />
   </ItemGroup>
 
 </Project>

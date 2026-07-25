@@ -7,30 +7,20 @@
 The binaries are unsigned, so SmartScreen may warn on first run
 (More info > Run anyway). In-app updates are not affected.
 
-### Added
+### Fixed
 
-- Second microphone input with automatic switching. Pick an "Auto-switch to
-  (when connected)" device under DEVICES: whenever that microphone is present
-  MicFX captures from it, and when it disappears MicFX falls back to the
-  primary one. The output stays on the same virtual cable throughout, so
-  Discord, OBS and games never need to be reconfigured. Intended for VR
-  headsets: connect the headset, its mic takes over; disconnect, the desk mic
-  comes back. The choice is remembered by name while the device is unplugged.
-- Monitor section with independent levels. The processed voice and the
-  soundboard now feed the headphone output through separate volume sliders, so
-  soundboard clips can be heard clearly while your own voice is turned down or
-  off. Monitoring is no longer affected by the master output volume.
-
-### Changed
-
-- Lower latency in the Low and Lowest modes: the drift guard's bounds now
-  scale with the selected mode instead of using one fixed setting, so buffered
-  audio is trimmed sooner (Lowest tops out around 90 ms of internal buffering
-  instead of 140 ms). The target is kept above one output period so a
-  correction cannot introduce a click; verified with a simulation that found
-  no inserted silence across repeated corrections.
-- The status bar shows an estimated end-to-end latency for the current
-  settings, and monitor outputs are now drift-guarded as well.
+- AI (RNNoise) noise suppression reported "library not found" and silently fell
+  back to spectral suppression on every installation. The native library was
+  compiled correctly by the release build but was placed next to the
+  executable, while every distribution form - the portable single file, the
+  zip and the installer - ships `MicFX.exe` on its own, so the library never
+  reached the machine. It is now embedded in the executable and unpacked to
+  `%LOCALAPPDATA%\MicFX\native` on first use, which works for all three forms.
+- When AI suppression genuinely cannot be used, the status bar now reports the
+  underlying reason instead of a generic message.
+- The release build verifies that the compiled library exports the expected
+  entry points and that it is still embedded, so this class of packaging
+  mistake fails the build instead of shipping.
 
 ### First-time setup
 

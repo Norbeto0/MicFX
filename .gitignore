@@ -13,3 +13,6 @@ dist/
 # OS
 Thumbs.db
 .DS_Store
+
+# Native library built by CI from pinned xiph/rnnoise source
+src/MicFX/native/

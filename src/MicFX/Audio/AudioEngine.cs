@@ -384,6 +384,9 @@ public class AudioEngine : IDisposable
     /// <summary>True when the native RNNoise library is loadable on this machine.</summary>
     public static bool AiDenoiseAvailable => RnNoiseSampleProvider.IsAvailable;
 
+    /// <summary>Why AI suppression is unavailable, when it is.</summary>
+    public static string? AiDenoiseUnavailableReason => RnNoiseSampleProvider.UnavailableReason;
+
     public void SetDenoise(bool enabled, float strengthDb, string mode)
     {
         denoiseEnabled = enabled;

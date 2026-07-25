@@ -29,6 +29,9 @@ public class RnNoiseSampleProvider : ISampleProvider, IDisposable
 
     private static bool? available;
 
+    /// <summary>Why the library could not be used, when IsAvailable is false.</summary>
+    public static string? UnavailableReason { get; private set; }
+
     /// <summary>True when the native rnnoise library loads and works.</summary>
     public static bool IsAvailable
     {
@@ -36,15 +39,18 @@ public class RnNoiseSampleProvider : ISampleProvider, IDisposable
         {
             if (available == null)
             {
+                NativeLibraryLoader.EnsureRegistered();
                 try
                 {
                     var probe = Native.rnnoise_create(IntPtr.Zero);
                     if (probe != IntPtr.Zero) Native.rnnoise_destroy(probe);
                     available = probe != IntPtr.Zero;
+                    if (probe == IntPtr.Zero) UnavailableReason = "rnnoise_create returned null";
                 }
-                catch
+                catch (Exception ex)
                 {
                     available = false;
+                    UnavailableReason = NativeLibraryLoader.LoadError ?? ex.Message;
                 }
             }
             return available.Value;
