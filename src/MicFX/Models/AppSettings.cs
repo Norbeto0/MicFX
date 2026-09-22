@@ -66,6 +66,7 @@ public class AppSettings
     public int EqBandCount { get; set; } = 10;
     public string LatencyMode { get; set; } = "Normal";
     public bool MatchClipLoudness { get; set; } = true;
+    public string AccentColor { get; set; } = Theme.DefaultAccent;
 
     private static string SettingsDir =>
         System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MicFX");

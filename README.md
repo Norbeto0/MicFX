@@ -50,7 +50,9 @@ mic -> gain -> noise suppression -> gate -> EQ -> compressor
   if the device refuses)
 - Closing the window minimizes to the system tray; optional start with
   Windows (minimized)
-- In-app auto-update from GitHub releases
+- In-app auto-update from GitHub releases, checked at startup or on demand
+  from the settings menu
+- Theme color: preset accent colors or a custom one
 - Settings persisted in `%APPDATA%\MicFX\settings.json`
 
 ## Setup
@@ -134,6 +136,7 @@ src/MicFX/
   Models/AppSettings.cs          JSON persistence, profiles
   HotkeyManager.cs               global hotkey registration
   MainWindow.xaml(.cs)           main UI
+  Theme.cs                       accent color presets, runtime recoloring
   EditSoundWindow.xaml(.cs)      per-clip editor (volume, loop, hotkey, preview)
   App.xaml                       theme
 installer/MicFX.iss              Inno Setup script (built in CI)

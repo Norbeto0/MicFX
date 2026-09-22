@@ -51,8 +51,17 @@ The binaries are unsigned, so SmartScreen may warn on first run
   is measured once using ITU-R BS.1770 and played at about -20 LUFS, so quiet
   and loud clips come out at similar volume. Quiet clips are raised at most
   12 dB. Per-clip volume still applies on top.
+- Theme color in the settings menu: eight presets or any custom color.
+  Applies immediately.
+- "Check for updates" button in the settings menu, next to the installed
+  version. The automatic check at startup is unchanged.
 - The audio code now has a test suite in the repository (44 tests), and the
   release build runs it against the Windows RNNoise library it just compiled.
+
+### Fixes
+
+- Clicking the settings button while the menu was open reopened it instead of
+  closing it.
 
 ### First-time setup
 

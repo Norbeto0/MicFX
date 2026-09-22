@@ -18,6 +18,19 @@
             <ToggleButton x:Name="btnMenu" DockPanel.Dock="Left" Content="☰"
                           Width="38" Height="34" FontSize="17" VerticalAlignment="Center"
                           Margin="0,0,12,0" ToolTip="Settings">
+                <!-- While the flyout is open, a click on this button must only
+                     close it: the popup closes on mouse-down outside itself,
+                     and the same click would then toggle the button (and the
+                     popup) straight back on. -->
+                <ToggleButton.Style>
+                    <Style TargetType="ToggleButton">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsOpen, ElementName=menuPopup}" Value="True">
+                                <Setter Property="IsHitTestVisible" Value="False"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ToggleButton.Style>
                 <ToggleButton.Template>
                     <ControlTemplate TargetType="ToggleButton">
                         <Border x:Name="Bd" Background="{StaticResource PanelBrush}"
@@ -30,8 +43,8 @@
                                 <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}"/>
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentDimBrush}"/>
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentDimBrush}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -39,7 +52,7 @@
             </ToggleButton>
 
             <!-- Settings flyout -->
-            <Popup PlacementTarget="{Binding ElementName=btnMenu}" Placement="Bottom"
+            <Popup x:Name="menuPopup" PlacementTarget="{Binding ElementName=btnMenu}" Placement="Bottom"
                    StaysOpen="False" AllowsTransparency="True"
                    IsOpen="{Binding IsChecked, ElementName=btnMenu, Mode=TwoWay}">
                 <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
@@ -67,9 +80,21 @@
                         <TextBlock Text="Lower settings reduce delay but may crackle on slower PCs. Exclusive takes over the mic while the engine runs."
                                    FontSize="11" Foreground="{StaticResource SubtleTextBrush}"
                                    TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        <TextBlock Text="Theme color" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"
+                                   Margin="0,12,0,4"/>
+                        <WrapPanel x:Name="accentSwatches" Margin="0,0,0,-6"/>
                         <TextBlock Text="Closing the window minimizes MicFX to the tray — exit via the tray icon."
                                    FontSize="11" Foreground="{StaticResource SubtleTextBrush}"
                                    TextWrapping="Wrap" Margin="0,10,0,0"/>
+                        <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,12,0,10"/>
+                        <DockPanel>
+                            <Button x:Name="btnCheckUpdates" DockPanel.Dock="Right" Content="Check for updates"
+                                    Style="{StaticResource SubtleButton}" Click="CheckUpdates_Click"/>
+                            <TextBlock x:Name="txtVersion" Text="v0.0.0" VerticalAlignment="Center"
+                                       FontSize="11" Foreground="{StaticResource SubtleTextBrush}"/>
+                        </DockPanel>
+                        <TextBlock x:Name="txtUpdateStatus" FontSize="11" Foreground="{StaticResource SubtleTextBrush}"
+                                   TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
                     </StackPanel>
                 </Border>
             </Popup>
@@ -101,7 +126,7 @@
 
         <!-- Notice bar (VB-Cable setup, updates) -->
         <Border x:Name="noticeBar" Grid.Row="1" Visibility="Collapsed"
-                Background="{StaticResource AccentDimBrush}" CornerRadius="6"
+                Background="{DynamicResource AccentDimBrush}" CornerRadius="6"
                 Padding="10,8" Margin="0,0,0,10">
             <DockPanel>
                 <Button x:Name="btnNoticeClose" DockPanel.Dock="Right" Content="✕"

@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
@@ -91,9 +92,11 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        Theme.ApplyAccent(Theme.Parse(settings.AccentColor));
         InitializeComponent();
         var version = Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
         Title = $"MicFX v{version.Major}.{version.Minor}.{version.Build} — Microphone Processor";
+        txtVersion.Text = $"MicFX v{version.Major}.{version.Minor}.{version.Build}";
         CleanUpAfterUpdate();
 
         settings.EqBandCount = Math.Clamp(settings.EqBandCount,
@@ -107,6 +110,7 @@ public partial class MainWindow : Window
         eqFrequencies = EqualizerSampleProvider.BuildFrequencies(settings.EqBandCount);
         BuildEqSliders(settings.EqGainsDb);
         BuildSpectrumBars();
+        BuildAccentSwatches();
         icSounds.ItemsSource = sounds;
         engine.LevelsAvailable += OnLevels;
         engine.ClipEnded += OnClipEndedUi;
@@ -312,13 +316,13 @@ public partial class MainWindow : Window
         {
             var bar = new Border
             {
-                Background = (Brush)FindResource("AccentBrush"),
                 Opacity = 0.22,
                 VerticalAlignment = VerticalAlignment.Bottom,
                 Margin = new Thickness(12, 0, 12, 0),
                 CornerRadius = new CornerRadius(2, 2, 0, 0),
                 Height = 2
             };
+            bar.SetResourceReference(Border.BackgroundProperty, "AccentBrush"); // follows theme changes
             spectrumPanel.Children.Add(bar);
             spectrumBars.Add(bar);
         }
@@ -826,11 +830,38 @@ public partial class MainWindow : Window
             onClose: () => settings.CableNoticeDismissed = true);
     }
 
-    private async Task CheckForUpdatesAsync()
+    private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
     {
+        txtUpdateStatus.Visibility = Visibility.Visible;
+        if (updating)
+        {
+            txtUpdateStatus.Text = "An update is already being installed.";
+            return;
+        }
+        btnCheckUpdates.IsEnabled = false;
+        txtUpdateStatus.Text = "Checking…";
         try
         {
-            using var http = new HttpClient();
+            await CheckForUpdatesAsync(manual: true);
+        }
+        finally
+        {
+            btnCheckUpdates.IsEnabled = !updating;
+        }
+    }
+
+    /// <summary>
+    /// Looks up the latest GitHub release and offers it in the notice bar. The
+    /// check at startup stays silent on failure and does not replace a notice
+    /// that is already showing; a manual check reports its result in the
+    /// settings menu and always shows the update.
+    /// </summary>
+    private async Task CheckForUpdatesAsync(bool manual = false)
+    {
+        if (updating) return;
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("MicFX-Updater");
             string json = await http.GetStringAsync(
                 $"https://api.github.com/repos/{RepoSlug}/releases/latest");
@@ -843,10 +874,17 @@ public partial class MainWindow : Window
             var latest = Version.Parse(tag.TrimStart('v', 'V'));
             var asm = Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
             var current = new Version(asm.Major, asm.Minor, asm.Build);
-            if (latest <= current || noticeBar.Visibility == Visibility.Visible) return;
+            if (latest <= current)
+            {
+                if (manual) txtUpdateStatus.Text = "You have the latest version.";
+                return;
+            }
+            if (!manual && noticeBar.Visibility == Visibility.Visible) return;
 
             updateTag = tag;
             updateHtmlUrl = url;
+            updateSetupUrl = null;
+            updatePortableUrl = null;
             if (root.TryGetProperty("assets", out var assets))
             {
                 foreach (var asset in assets.EnumerateArray())
@@ -866,10 +904,20 @@ public partial class MainWindow : Window
                 canAutoUpdate ? "Install update" : "Download",
                 canAutoUpdate ? StartUpdate : () => OpenUrl(url),
                 "What's new", () => OpenUrl(url));
+            if (manual)
+            {
+                txtUpdateStatus.Text = $"{tag} is available.";
+                btnMenu.IsChecked = false; // reveal the notice bar under the menu
+            }
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            if (manual) txtUpdateStatus.Text = "GitHub is limiting requests right now. Try again in an hour.";
         }
         catch
         {
-            // Offline or rate-limited — stay quiet.
+            // Offline or GitHub unreachable. Stay quiet at startup.
+            if (manual) txtUpdateStatus.Text = "Could not reach GitHub. Check your connection.";
         }
     }
 
@@ -1169,6 +1217,94 @@ public partial class MainWindow : Window
 
     private string CurrentLatencyMode() =>
         (comboLatency.SelectedItem as ComboBoxItem)?.Tag as string ?? "Normal";
+
+    // ---------- theme color ----------
+
+    private void BuildAccentSwatches()
+    {
+        foreach (var (name, hex) in Theme.Presets)
+        {
+            var swatch = new Button
+            {
+                Style = (Style)FindResource("SwatchButton"),
+                Background = new SolidColorBrush(Theme.Parse(hex)),
+                Tag = hex,
+                ToolTip = name
+            };
+            swatch.Click += (_, _) => SetAccent(hex);
+            accentSwatches.Children.Add(swatch);
+        }
+
+        var custom = new Button
+        {
+            Style = (Style)FindResource("SwatchButton"),
+            ToolTip = "Custom color…"
+        };
+        custom.Click += (_, _) => PickCustomAccent();
+        accentSwatches.Children.Add(custom);
+        RefreshAccentSwatches();
+    }
+
+    /// <summary>Rings the selected swatch; the last swatch shows a custom color or a "+".</summary>
+    private void RefreshAccentSwatches()
+    {
+        string current = Theme.ToHex(Theme.Parse(settings.AccentColor));
+        var ring = (Brush)FindResource("TextBrush");
+        bool matchedPreset = false;
+        foreach (var swatch in accentSwatches.Children.OfType<Button>())
+        {
+            if (swatch.Tag is string hex)
+            {
+                bool selected = string.Equals(hex, current, StringComparison.OrdinalIgnoreCase);
+                matchedPreset |= selected;
+                swatch.BorderBrush = selected ? ring : Brushes.Transparent;
+            }
+            else
+            {
+                swatch.Background = matchedPreset
+                    ? (Brush)FindResource("ElevatedBrush")
+                    : new SolidColorBrush(Theme.Parse(current));
+                swatch.Content = matchedPreset ? PlusGlyph() : null;
+                swatch.BorderBrush = matchedPreset ? Brushes.Transparent : ring;
+            }
+        }
+    }
+
+    private System.Windows.Shapes.Path PlusGlyph() => new()
+    {
+        Data = Geometry.Parse("M 4,0 L 4,8 M 0,4 L 8,4"),
+        Stroke = (Brush)FindResource("SubtleTextBrush"),
+        StrokeThickness = 1.5,
+        Width = 8,
+        Height = 8
+    };
+
+    private void SetAccent(string hex)
+    {
+        settings.AccentColor = Theme.ToHex(Theme.Parse(hex));
+        Theme.ApplyAccent(Theme.Parse(settings.AccentColor));
+        RefreshAccentSwatches();
+        CollectSettings();
+        settings.Save();
+    }
+
+    private void PickCustomAccent()
+    {
+        var current = Theme.Parse(settings.AccentColor);
+        using var dialog = new WinForms.ColorDialog
+        {
+            FullOpen = true,
+            Color = System.Drawing.Color.FromArgb(current.R, current.G, current.B)
+        };
+        var owner = new WinFormsOwner(new System.Windows.Interop.WindowInteropHelper(this).Handle);
+        if (dialog.ShowDialog(owner) == WinForms.DialogResult.OK)
+            SetAccent(Theme.ToHex(Color.FromRgb(dialog.Color.R, dialog.Color.G, dialog.Color.B)));
+    }
+
+    private sealed class WinFormsOwner(IntPtr handle) : WinForms.IWin32Window
+    {
+        public IntPtr Handle { get; } = handle;
+    }
 
     private void Latency_Changed(object sender, SelectionChangedEventArgs e)
     {

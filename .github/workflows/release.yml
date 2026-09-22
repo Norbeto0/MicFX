@@ -39,11 +39,15 @@ jobs:
           $actual = (Get-FileHash rnnoise-0.2.tar.gz -Algorithm SHA256).Hash.ToLower()
           if ($actual -ne $expected) { throw "rnnoise-0.2.tar.gz hash mismatch: $actual" }
           tar -xzf rnnoise-0.2.tar.gz
+          # No dot in the directory name: PowerShell splits a native argument
+          # like -Irnnoise-0.2/include at the dot, and gcc loses the path.
+          Rename-Item rnnoise-0.2 rnnoise-src
           New-Item -ItemType Directory -Force src/MicFX/native | Out-Null
           $src = @('denoise.c','rnn.c','pitch.c','kiss_fft.c','celt_lpc.c','nnet.c','nnet_default.c',
                    'parse_lpcnet_weights.c','rnnoise_data.c','rnnoise_tables.c') |
-            ForEach-Object { "rnnoise-0.2/src/$_" }
-          gcc -O3 -shared -static-libgcc -Irnnoise-0.2/include -Irnnoise-0.2/src @src -o src/MicFX/native/rnnoise.dll
+            ForEach-Object { "rnnoise-src/src/$_" }
+          gcc -O3 -shared -static-libgcc '-Irnnoise-src/include' '-Irnnoise-src/src' @src -o src/MicFX/native/rnnoise.dll
+          if ($LASTEXITCODE -ne 0) { throw "gcc failed with exit code $LASTEXITCODE" }
           if (!(Test-Path src/MicFX/native/rnnoise.dll)) { throw 'rnnoise build failed' }
           # The DLL is embedded into the assembly, so a dud would only surface at
           # runtime on a user's machine — verify the entry points are exported.
