@@ -7,17 +7,52 @@
 The binaries are unsigned, so SmartScreen may warn on first run
 (More info > Run anyway). In-app updates are not affected.
 
-### Fixed
+### Noise suppression
 
-- The window opened far taller than it needed to be. Sizing it to fit the
-  whole left column made sense while that column could be clipped, but now
-  that the column scrolls the two no longer have to match. The window opens
-  at the height that shows the column, capped so it never takes over the
-  screen, and can be made considerably smaller by hand.
-- The left column itself is more compact: tighter card padding and spacing,
-  the device Refresh button moved up beside the Microphone label, and the
-  noise suppression strength slider is hidden rather than greyed out while
-  the AI engine is selected, since it only applies to the spectral one.
+- The AI engine is upgraded from RNNoise 0.1.1 to 0.2, xiph's retrained and
+  larger model. Measured on real speech (CMU ARCTIC, male and female voices)
+  mixed with four noise types at 0-20 dB SNR, noise left in pauses between
+  words:
+
+  | Noise          | 0.1.1   | 0.2     |
+  |----------------|---------|---------|
+  | Keyboard clicks| -4 dB   | -32 dB  |
+  | Preamp hiss    | -14 dB  | -61 dB  |
+  | Fan / AC       | -30 dB  | -65 dB  |
+  | Mains hum      | -20 dB  | -40 dB  |
+
+  Voice quality (SI-SDR improvement) also rises from +3.9 to +4.9 dB. CPU use
+  is unchanged at about 2% of one core per channel.
+- New strength control for the AI engine ("Max" by default). Lower values
+  blend some of the original signal back in, which can sound more natural;
+  at 24 dB it measured slightly better voice quality than full strength. The
+  original signal is delayed to line up exactly with the model output, which
+  avoids the comb filtering a plain blend would cause.
+- New "Silence between phrases" option (AI engine only): mutes the mic when
+  you are not speaking, using the model's own speech detection rather than
+  loudness, so desk knocks and key presses do not open it. Calibrated on the
+  same recordings: at realistic room noise it keeps 99.0-99.6% of speech
+  frames and never opened on noise alone. In a very loud room (noise as loud
+  as your voice) it can occasionally clip a syllable; leave it off there.
+- Removed the input level normalization added in 1.6. Tested on real speech
+  it made no measurable difference.
+- Latency: the new model takes 20 ms instead of 10 ms. The spectral engine is
+  unaffected.
+
+### Also new
+
+- Safety limiter on the output and the headphone monitor: nothing leaves
+  MicFX above -1 dBFS, so your voice plus a loud clip cannot distort in
+  Discord or blast your ears. 1 ms lookahead; audio below the ceiling is
+  passed through unchanged.
+- Level meters turn red when the mic input clips (lower Mic gain) or when the
+  output limiter has to act (you are louder than needed). Hover for details.
+- Soundboard loudness matching ("Even out loudness", on by default): each clip
+  is measured once using ITU-R BS.1770 and played at about -20 LUFS, so quiet
+  and loud clips come out at similar volume. Quiet clips are raised at most
+  12 dB. Per-clip volume still applies on top.
+- The audio code now has a test suite in the repository (44 tests), and the
+  release build runs it against the Windows RNNoise library it just compiled.
 
 ### First-time setup
 

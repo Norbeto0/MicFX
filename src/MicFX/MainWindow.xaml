@@ -243,12 +243,16 @@
                         <ComboBox x:Name="comboDenoiseMode" Margin="0,4,0,4"
                                   SelectionChanged="Denoise_Changed">
                             <ComboBoxItem Content="AI (RNNoise) — voices only" Tag="Ai" IsSelected="True"/>
-                            <ComboBoxItem Content="Spectral — adjustable strength" Tag="Spectral"/>
+                            <ComboBoxItem Content="Spectral — steady noise" Tag="Spectral"/>
                         </ComboBox>
-                        <!-- Only the spectral engine has a strength control -->
-                        <Slider x:Name="sliderDenoise" Minimum="6" Maximum="30" Value="18"
-                                ValueChanged="Denoise_Changed" Margin="0,2,0,6"
-                                Visibility="Collapsed"/>
+                        <!-- Strength for both engines. Its range and value are swapped
+                             on mode change: AI 6-60 dB (60 = no limit), spectral 6-30 dB. -->
+                        <Slider x:Name="sliderDenoise" Minimum="6" Maximum="60" Value="60"
+                                ValueChanged="Denoise_Changed" Margin="0,2,0,4"
+                                ToolTip="Most noise the suppressor may remove. Lower keeps more of the original sound and can sound more natural."/>
+                        <CheckBox x:Name="chkVoiceGate" Content="Silence between phrases" Margin="0,2,0,8"
+                                  Checked="Denoise_Changed" Unchecked="Denoise_Changed"
+                                  ToolTip="Fully mutes the mic whenever you're not speaking, using the AI's speech detection — loud non-voice sounds like desk knocks won't open it. May clip a syllable in a very loud room."/>
                         <DockPanel>
                             <TextBlock x:Name="lblGate" DockPanel.Dock="Right" Text="-45 dB" FontSize="11"
                                        Foreground="{StaticResource SubtleTextBrush}"/>
@@ -297,6 +301,9 @@
                                    Foreground="{StaticResource SubtleTextBrush}"/>
                         <Slider x:Name="sliderSoundVol" Width="140" Minimum="0" Maximum="1" Value="0.8"
                                 VerticalAlignment="Center" ValueChanged="SoundVol_Changed"/>
+                        <CheckBox x:Name="chkMatchLoudness" Content="Even out loudness" Margin="16,0,0,0"
+                                  VerticalAlignment="Center" Checked="MatchLoudness_Changed" Unchecked="MatchLoudness_Changed"
+                                  ToolTip="Plays every clip at a similar loudness (-20 LUFS), measured once per clip. Quiet clips are raised at most 12 dB. Per-clip volume still applies on top."/>
                         <TextBlock Text="Hotkeys Ctrl+Alt+1…9 (customizable) · right-click a tile to edit or remove"
                                    VerticalAlignment="Center" Margin="16,0,0,0" FontSize="11"
                                    Foreground="{StaticResource SubtleTextBrush}"/>

@@ -20,6 +20,9 @@ namespace MicFX.Audio;
 /// call from the UI thread while the graph is running, and are remembered so a
 /// later Start() picks them up.
 /// </summary>
+/// <summary>One meter update: levels in dB plus clip warnings.</summary>
+public readonly record struct LevelReport(float InputDb, float OutputDb, bool InputHot, bool OutputLimited);
+
 public class AudioEngine : IDisposable
 {
     public const int SampleRate = 48000;
@@ -66,6 +69,8 @@ public class AudioEngine : IDisposable
     private bool denoiseEnabled;
     private float denoiseStrengthDb = 18f;
     private string denoiseMode = "Ai";
+    private float aiMaxReductionDb = RnNoiseSampleProvider.MaxReductionUnlimited;
+    private bool voiceGateEnabled;
     private bool compEnabled;
     private float compAmount = 50f;
     private string latencyMode = "Normal";
@@ -73,6 +78,8 @@ public class AudioEngine : IDisposable
     private float monitorSound = 1f;
 
     private float lastInputDb = -100f;
+    private bool inputHot;
+    private PeakLimiterSampleProvider? outputLimiter;
     private DateTime lastInputSoundUtc = DateTime.UtcNow;
 
     public bool IsRunning { get; private set; }
@@ -104,8 +111,11 @@ public class AudioEngine : IDisposable
     {
         get
         {
-            int total = CaptureLatencyMs + OutputLatencyMs + 10; // + RNNoise framing
-            if (denoiseEnabled && denoiseMode == "Spectral") total += 5;
+            int total = CaptureLatencyMs + OutputLatencyMs + 1; // + safety limiter lookahead
+            if (denoiseEnabled)
+                total += denoiseMode == "Ai" && RnNoiseSampleProvider.IsAvailable
+                    ? RnNoiseSampleProvider.AlgorithmicDelay * 1000 / SampleRate  // 20 ms
+                    : 5;                                                          // spectral hop
             return total;
         }
     }
@@ -114,7 +124,12 @@ public class AudioEngine : IDisposable
     public void SetLatencyMode(string mode) => latencyMode = mode;
 
     /// <summary>Raised from the audio thread with (input dB, output dB) roughly 20×/second.</summary>
-    public event Action<float, float>? LevelsAvailable;
+    /// <summary>
+    /// Raised from the audio thread roughly 20×/second with input and output
+    /// peak levels in dB, whether the input came close to clipping (mic gain
+    /// too hot) and whether the output limiter had to act (too loud overall).
+    /// </summary>
+    public event Action<LevelReport>? LevelsAvailable;
 
     /// <summary>Raised (from the audio thread) when a soundboard clip finishes or is stopped.</summary>
     public event Action<object>? ClipEnded;
@@ -157,7 +172,12 @@ public class AudioEngine : IDisposable
 
         micVolume = new VolumeSampleProvider(mic) { Volume = micGain };
         var inputMeter = new MeteringSampleProvider(micVolume, SampleRate / 20);
-        inputMeter.StreamVolume += (_, e) => lastInputDb = ToDb(MaxOf(e.MaxSampleValues));
+        inputMeter.StreamVolume += (_, e) =>
+        {
+            float peak = MaxOf(e.MaxSampleValues);
+            lastInputDb = ToDb(peak);
+            if (peak >= 0.99f) inputHot = true; // sticky until the next report
+        };
 
         gate = new NoiseGateSampleProvider(inputMeter) { Enabled = gateEnabled, ThresholdDb = gateThresholdDb };
         eq = new EqualizerSampleProvider(gate, eqBandCount, eqGains);
@@ -187,9 +207,18 @@ public class AudioEngine : IDisposable
         mainMixer.AddMixerInput((ISampleProvider)soundTee);
 
         masterVolume = new VolumeSampleProvider(mainMixer) { Volume = master };
-        var outputMeter = new MeteringSampleProvider(masterVolume, SampleRate / 20);
+        // Last stage before the device: nothing leaves MicFX above -1 dBFS.
+        outputLimiter = new PeakLimiterSampleProvider(masterVolume);
+        var outputMeter = new MeteringSampleProvider(outputLimiter, SampleRate / 20);
         outputMeter.StreamVolume += (_, e) =>
-            LevelsAvailable?.Invoke(lastInputDb, ToDb(MaxOf(e.MaxSampleValues)));
+        {
+            // Both run on the audio thread: this callback fires inside the
+            // same Read that drives the limiter.
+            bool limited = outputLimiter?.ConsumeMaxGainReductionDb() > 0.5f;
+            var report = new LevelReport(lastInputDb, ToDb(MaxOf(e.MaxSampleValues)), inputHot, limited);
+            inputHot = false;
+            LevelsAvailable?.Invoke(report);
+        };
 
         output = new WasapiOut(render, AudioClientShareMode.Shared, true, OutputLatencyMs);
         output.Init(new SampleToWaveProvider(outputMeter));
@@ -287,7 +316,8 @@ public class AudioEngine : IDisposable
         monitorMixer.AddMixerInput((ISampleProvider)monitorSoundVolume);
 
         monitorOutput = new WasapiOut(device, AudioClientShareMode.Shared, true, OutputLatencyMs);
-        monitorOutput.Init(new SampleToWaveProvider(monitorMixer));
+        // Monitor levels go up to 150% per source: protect the listener's ears too.
+        monitorOutput.Init(new SampleToWaveProvider(new PeakLimiterSampleProvider(monitorMixer)));
         monitorOutput.Play();
         voiceTee.Enabled = true;
         soundTee.Enabled = true;
@@ -323,6 +353,7 @@ public class AudioEngine : IDisposable
         micVolume = null;
         soundboardVolume = null;
         masterVolume = null;
+        outputLimiter = null;
         monitorVoiceVolume = null;
         monitorSoundVolume = null;
         aiDenoise?.Dispose();
@@ -373,11 +404,13 @@ public class AudioEngine : IDisposable
     /// <summary>Why AI suppression is unavailable, when it is.</summary>
     public static string? AiDenoiseUnavailableReason => RnNoiseSampleProvider.UnavailableReason;
 
-    public void SetDenoise(bool enabled, float strengthDb, string mode)
+    public void SetDenoise(bool enabled, float strengthDb, string mode, float aiMaxReductionDb, bool voiceGate)
     {
         denoiseEnabled = enabled;
         denoiseStrengthDb = strengthDb;
         denoiseMode = mode;
+        this.aiMaxReductionDb = aiMaxReductionDb;
+        voiceGateEnabled = voiceGate;
         ApplyDenoise();
     }
 
@@ -385,7 +418,11 @@ public class AudioEngine : IDisposable
     {
         bool useAi = denoiseEnabled && denoiseMode == "Ai" && RnNoiseSampleProvider.IsAvailable;
         if (aiDenoise != null)
+        {
             aiDenoise.Enabled = useAi;
+            aiDenoise.MaxReductionDb = aiMaxReductionDb;
+            aiDenoise.VoiceGateEnabled = voiceGateEnabled;
+        }
         if (denoise != null)
         {
             denoise.Enabled = denoiseEnabled && !useAi;

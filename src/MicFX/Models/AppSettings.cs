@@ -12,6 +12,8 @@ public class SoundClipSetting
     public uint HotkeyMods { get; set; }   // Win32 MOD_* flags; 0 + HotkeyVk 0 = default slot hotkey
     public uint HotkeyVk { get; set; }
     public string? HotkeyText { get; set; }
+    /// <summary>Integrated loudness (BS.1770), measured once; null until measured.</summary>
+    public double? LoudnessLufs { get; set; }
 }
 
 /// <summary>A named snapshot of the sound-shaping settings (not devices, not soundboard).</summary>
@@ -25,6 +27,8 @@ public class Profile
     public bool DenoiseEnabled { get; set; }
     public float DenoiseStrengthDb { get; set; } = 18f;
     public string DenoiseMode { get; set; } = "Ai";
+    public float AiMaxReductionDb { get; set; } = 60f;   // 60 = no limit
+    public bool VoiceGateEnabled { get; set; }
     public bool CompressorEnabled { get; set; }
     public float CompressorAmount { get; set; } = 50f;
     public float[] EqGainsDb { get; set; } = new float[10];
@@ -50,6 +54,8 @@ public class AppSettings
     public bool DenoiseEnabled { get; set; }
     public float DenoiseStrengthDb { get; set; } = 18f;
     public string DenoiseMode { get; set; } = "Ai";
+    public float AiMaxReductionDb { get; set; } = 60f;   // 60 = no limit
+    public bool VoiceGateEnabled { get; set; }
     public bool CompressorEnabled { get; set; }
     public float CompressorAmount { get; set; } = 50f;
     public float[] EqGainsDb { get; set; } = new float[10];
@@ -59,6 +65,7 @@ public class AppSettings
     public bool CableNoticeDismissed { get; set; }
     public int EqBandCount { get; set; } = 10;
     public string LatencyMode { get; set; } = "Normal";
+    public bool MatchClipLoudness { get; set; } = true;
 
     private static string SettingsDir =>
         System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MicFX");

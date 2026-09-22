@@ -4,16 +4,34 @@ using NAudio.Wave;
 namespace MicFX.Audio;
 
 /// <summary>
-/// ML noise suppression using RNNoise (xiph.org) — the same model family
-/// Discord's standard noise suppression is built on. Works on fixed
+/// ML noise suppression using RNNoise v0.2 (xiph.org). Works on fixed
 /// 480-sample (10 ms) frames at 48 kHz with one native state per channel.
-/// The native library is built from the pinned official source in CI; when
-/// it can't be loaded, IsAvailable is false and the engine falls back to
-/// the spectral suppressor.
+/// The native library is built from the pinned official release in CI and
+/// embedded; when it cannot be loaded, IsAvailable is false and the engine
+/// falls back to the spectral suppressor.
+///
+/// Two refinements on top of the raw model, both benchmarked on real speech:
+/// <list type="bullet">
+/// <item><see cref="MaxReductionDb"/> blends the untreated signal back in, so
+/// noise is reduced by at most that much. The dry path is delayed to match the
+/// model's output exactly — without that the blend comb-filters the voice.</item>
+/// <item><see cref="VoiceGateEnabled"/> silences the output between phrases
+/// using the model's own speech probability.</item>
+/// </list>
 /// </summary>
 public class RnNoiseSampleProvider : ISampleProvider, IDisposable
 {
     private const int FrameSize = 480; // fixed by RNNoise: 10 ms at 48 kHz
+
+    /// <summary>
+    /// How far RNNoise v0.2's output lags its input, in samples (two frames),
+    /// measured by cross-correlating output with input on real speech. The dry
+    /// path must be delayed by exactly this for the strength blend to be clean.
+    /// </summary>
+    public const int AlgorithmicDelay = 960;
+
+    /// <summary>At or above this, <see cref="MaxReductionDb"/> means "no limit".</summary>
+    public const float MaxReductionUnlimited = 60f;
 
     private static class Native
     {
@@ -64,35 +82,75 @@ public class RnNoiseSampleProvider : ISampleProvider, IDisposable
     private readonly float[] hopIn;
     private readonly float[] frameIn = new float[FrameSize];
     private readonly float[] frameOut = new float[FrameSize];
+    private readonly float[] frameMix;
+    private readonly float[][] dryLine;
     private readonly float[] outQueue;
+    private readonly VoiceGate gate;
+    private int dryPos;
     private int queueCount;
     private int queueRead;
     private bool enabled;
     private bool disposed;
-
-    // RNNoise suppresses best around a normal speech level (~-14 dBFS peak,
-    // measured); quiet mics get much weaker suppression. Track the input
-    // envelope and boost into that operating point, undoing the boost on the
-    // way out so the stream level is untouched.
-    private const float TargetPeak = 6500f / 32768f;
-    private float envelope;
-    private float normGain = 1f;
+    private bool gateEnabled;
+    private volatile bool resetPending;
+    private volatile bool gateResetPending;
 
     public bool Enabled
     {
         get => enabled;
-        set => enabled = value && IsAvailable && !disposed;
+        set
+        {
+            bool next = value && IsAvailable && !disposed;
+            // Start clean: stale model state and delay lines would otherwise
+            // replay a few frames of audio from before it was switched off.
+            if (next && !enabled) resetPending = true;
+            enabled = next;
+        }
     }
+
+    /// <summary>
+    /// Upper bound on noise reduction in dB (6–60). Below
+    /// <see cref="MaxReductionUnlimited"/> the delay-matched dry signal is mixed
+    /// in at that level; lower values sound more natural but leave more noise.
+    /// </summary>
+    public float MaxReductionDb { get; set; } = MaxReductionUnlimited;
+
+    /// <summary>Silence the output between phrases using the model's speech probability.</summary>
+    public bool VoiceGateEnabled
+    {
+        get => gateEnabled;
+        set
+        {
+            if (value && !gateEnabled) gateResetPending = true;
+            gateEnabled = value;
+        }
+    }
+
+    /// <summary>Speech probability of the most recent frame (max over channels).</summary>
+    public float LastVoiceProbability { get; private set; }
 
     public WaveFormat WaveFormat => source.WaveFormat;
 
-    public RnNoiseSampleProvider(ISampleProvider source)
+    /// <summary>
+    /// Voice gate settings, calibrated on real speech (CMU ARCTIC) mixed with
+    /// fan, hiss, hum and keyboard noise at 0–20 dB SNR. A 0.6 threshold never
+    /// opened on noise alone (0.5 did, up to 4% of the time) while keeping
+    /// 99.0–99.6% of speech frames at 10–20 dB SNR; hold time did not change
+    /// speech retention, and 200 ms returns to silence faster than 300 ms.
+    /// </summary>
+    public RnNoiseSampleProvider(ISampleProvider source, float gateThreshold = 0.6f, int gateHoldMs = 200)
     {
         this.source = source;
         channels = source.WaveFormat.Channels;
         states = new IntPtr[channels];
         hopIn = new float[FrameSize * channels];
+        frameMix = new float[FrameSize * channels];
         outQueue = new float[FrameSize * channels * 4];
+        dryLine = new float[channels][];
+        for (int ch = 0; ch < channels; ch++)
+            dryLine[ch] = new float[AlgorithmicDelay];
+        gate = new VoiceGate(source.WaveFormat.SampleRate, channels, gateThreshold, gateHoldMs);
+        gate.Reset();
     }
 
     public int Read(float[] buffer, int offset, int count)
@@ -141,17 +199,28 @@ public class RnNoiseSampleProvider : ISampleProvider, IDisposable
 
     private void ProcessFrame()
     {
-        float framePeak = 0f;
-        for (int i = 0; i < hopIn.Length; i++)
-            framePeak = MathF.Max(framePeak, MathF.Abs(hopIn[i]));
-        envelope = MathF.Max(framePeak, envelope * 0.995f);
-        float desired = envelope > 1e-4f ? Math.Clamp(TargetPeak / envelope, 1f, 32f) : 1f;
-        normGain = 0.9f * normGain + 0.1f * desired;
-        float scaleIn = 32768f * normGain;
-
         lock (stateLock)
         {
             if (disposed) return;
+
+            if (resetPending)
+            {
+                resetPending = false;
+                DestroyStates();
+                foreach (var line in dryLine) Array.Clear(line);
+                dryPos = 0;
+            }
+            if (gateResetPending)
+            {
+                gateResetPending = false;
+                gate.Reset();
+            }
+
+            float maxReduction = MaxReductionDb;
+            float dryMix = maxReduction >= MaxReductionUnlimited ? 0f : MathF.Pow(10f, -maxReduction / 20f);
+            float wetMix = 1f - dryMix;
+            float vad = 0f;
+
             for (int ch = 0; ch < channels; ch++)
             {
                 if (states[ch] == IntPtr.Zero)
@@ -159,18 +228,44 @@ public class RnNoiseSampleProvider : ISampleProvider, IDisposable
 
                 // RNNoise expects 16-bit-range float samples
                 for (int i = 0; i < FrameSize; i++)
-                    frameIn[i] = hopIn[i * channels + ch] * scaleIn;
+                    frameIn[i] = hopIn[i * channels + ch] * 32768f;
 
-                Native.rnnoise_process_frame(states[ch], frameOut, frameIn);
+                vad = MathF.Max(vad, Native.rnnoise_process_frame(states[ch], frameOut, frameIn));
 
+                var line = dryLine[ch];
                 for (int i = 0; i < FrameSize; i++)
                 {
-                    int w = (queueRead + queueCount + i * channels + ch) % outQueue.Length;
-                    outQueue[w] = frameOut[i] / scaleIn;
+                    // Read the sample written AlgorithmicDelay samples ago, then
+                    // replace it: the dry path lines up exactly with the model output.
+                    int idx = (dryPos + i) % AlgorithmicDelay;
+                    float dry = line[idx];
+                    line[idx] = hopIn[i * channels + ch];
+                    frameMix[i * channels + ch] = wetMix * (frameOut[i] / 32768f) + dryMix * dry;
                 }
             }
+            dryPos = (dryPos + FrameSize) % AlgorithmicDelay;
+            LastVoiceProbability = vad;
+
+            if (gateEnabled)
+                gate.ProcessFrame(frameMix, 0, FrameSize, vad);
+
+            int total = FrameSize * channels;
+            for (int i = 0; i < total; i++)
+                outQueue[(queueRead + queueCount + i) % outQueue.Length] = frameMix[i];
+            queueCount += total;
         }
-        queueCount += FrameSize * channels;
+    }
+
+    private void DestroyStates()
+    {
+        for (int ch = 0; ch < channels; ch++)
+        {
+            if (states[ch] != IntPtr.Zero)
+            {
+                Native.rnnoise_destroy(states[ch]);
+                states[ch] = IntPtr.Zero;
+            }
+        }
     }
 
     public void Dispose()
@@ -179,14 +274,7 @@ public class RnNoiseSampleProvider : ISampleProvider, IDisposable
         {
             disposed = true;
             enabled = false;
-            for (int ch = 0; ch < channels; ch++)
-            {
-                if (states[ch] != IntPtr.Zero)
-                {
-                    Native.rnnoise_destroy(states[ch]);
-                    states[ch] = IntPtr.Zero;
-                }
-            }
+            DestroyStates();
         }
     }
 }

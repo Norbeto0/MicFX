@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Tests for the audio code. The DSP classes are plain .NET + NAudio, so they
+       are compiled in directly rather than referencing the WPF app project; that
+       keeps the suite runnable on any OS, not just Windows. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <!-- Path to a native RNNoise build to embed; defaults to the one CI builds. -->
+    <RnNoiseLib Condition="'$(RnNoiseLib)' == ''">$(MSBuildThisFileDirectory)../../src/MicFX/native/rnnoise.dll</RnNoiseLib>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../../src/MicFX/Audio/*.cs" Exclude="../../src/MicFX/Audio/AudioEngine.cs" LinkBase="Audio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="$(RnNoiseLib)" Condition="Exists('$(RnNoiseLib)')" LogicalName="MicFX.rnnoise.dll" />
+  </ItemGroup>
+
+</Project>

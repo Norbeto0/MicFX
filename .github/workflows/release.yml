@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v1.4.0)'
+        description: 'Release tag (e.g. v1.10.0)'
         required: true
-        default: v1.4.0
+        default: v1.10.0
 
 permissions:
   contents: write
@@ -25,17 +25,25 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      # Native RNNoise, compiled from the pinned official xiph source so the
-      # binary is reproducible and auditable. gcc here is MinGW-w64 from the
-      # runner image.
+      # Native RNNoise v0.2, compiled from the official xiph release tarball so
+      # the binary is reproducible and auditable. The tarball bundles the model
+      # weights (src/rnnoise_data.c); its SHA-256 is pinned so a changed upstream
+      # file fails the build instead of silently shipping. gcc here is MinGW-w64
+      # from the runner image.
       - name: Build RNNoise from source
         shell: pwsh
         run: |
-          git clone --depth 1 --branch v0.1.1 https://github.com/xiph/rnnoise rnnoise-src
+          $url = 'https://github.com/xiph/rnnoise/releases/download/v0.2/rnnoise-0.2.tar.gz'
+          $expected = '90fce4b00b9ff24c08dbfe31b82ffd43bae383d85c5535676d28b0a2b11c0d37'
+          Invoke-WebRequest -Uri $url -OutFile rnnoise-0.2.tar.gz
+          $actual = (Get-FileHash rnnoise-0.2.tar.gz -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $expected) { throw "rnnoise-0.2.tar.gz hash mismatch: $actual" }
+          tar -xzf rnnoise-0.2.tar.gz
           New-Item -ItemType Directory -Force src/MicFX/native | Out-Null
-          $src = @('denoise.c','rnn.c','rnn_data.c','rnn_reader.c','pitch.c','kiss_fft.c','celt_lpc.c') |
-            ForEach-Object { "rnnoise-src/src/$_" }
-          gcc -O3 -shared -static-libgcc -Irnnoise-src/include -Irnnoise-src/src @src -o src/MicFX/native/rnnoise.dll
+          $src = @('denoise.c','rnn.c','pitch.c','kiss_fft.c','celt_lpc.c','nnet.c','nnet_default.c',
+                   'parse_lpcnet_weights.c','rnnoise_data.c','rnnoise_tables.c') |
+            ForEach-Object { "rnnoise-0.2/src/$_" }
+          gcc -O3 -shared -static-libgcc -Irnnoise-0.2/include -Irnnoise-0.2/src @src -o src/MicFX/native/rnnoise.dll
           if (!(Test-Path src/MicFX/native/rnnoise.dll)) { throw 'rnnoise build failed' }
           # The DLL is embedded into the assembly, so a dud would only surface at
           # runtime on a user's machine — verify the entry points are exported.
@@ -48,6 +56,14 @@ jobs:
             Write-Host 'objdump unavailable; skipping export check'
           }
           '{0}: {1} bytes' -f 'rnnoise.dll', (Get-Item src/MicFX/native/rnnoise.dll).Length
+
+      # The suite runs against the DLL just built, and fails if it can't load:
+      # this is the only place the Windows native build is exercised before users.
+      - name: Test
+        shell: pwsh
+        env:
+          MICFX_REQUIRE_RNNOISE: '1'
+        run: dotnet test tests/MicFX.Tests/MicFX.Tests.csproj -c Release
 
       - name: Verify RNNoise is embedded
         shell: pwsh

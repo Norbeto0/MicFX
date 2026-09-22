@@ -16,11 +16,13 @@ mic -> gain -> noise suppression -> gate -> EQ -> compressor
 
 - Graphic EQ with adjustable band count (10-20, log-spaced 31 Hz-16 kHz,
   +/-15 dB), presets, live spectrum display behind the sliders
-- Noise suppression with two engines: AI (RNNoise, the recurrent-network
-  denoiser Discord's standard suppression is based on; removes everything
-  that is not voice) and spectral (STFT with adaptive noise floor,
-  adjustable strength). Applied to the mic before the soundboard is mixed
-  in, so clips are never affected
+- Noise suppression with two engines: AI (RNNoise 0.2, a recurrent neural
+  network that removes everything that is not voice, including keyboard
+  clicks) and spectral (STFT with adaptive noise floor). Both have a strength
+  control. Applied to the mic before the soundboard is mixed in, so clips are
+  never affected
+- Optional voice gate that silences the mic between phrases using the AI
+  engine's speech detection, so loud non-voice sounds do not open it
 - Noise gate with adjustable threshold
 - Compressor ("voice leveler") with automatic make-up gain
 - Soundboard mixed into the mic stream: per-clip volume, loop mode, custom
@@ -36,7 +38,12 @@ mic -> gain -> noise suppression -> gate -> EQ -> compressor
 - Monitoring on a separate output device with independent levels for your own
   voice and the soundboard, so you can hear clips loudly while keeping your
   own voice quiet
-- Input/output level meters, mic gain, master volume
+- Input/output level meters that turn red when the mic input clips or the
+  output limiter engages; mic gain, master volume
+- Safety limiter (-1 dBFS, 1 ms lookahead) on the output and on the headphone
+  monitor, so voice plus a loud clip cannot distort or blast your ears
+- Soundboard loudness matching: each clip is measured once (ITU-R BS.1770)
+  and played at a similar loudness, with per-clip volume on top
 - Latency modes in the settings menu: Normal (~90 ms mouth-to-app, safest),
   Low (smaller buffers), Lowest (additionally opens the mic in WASAPI
   exclusive mode, bypassing the Windows audio engine; falls back to shared
@@ -78,6 +85,18 @@ dotnet run --project src/MicFX
 
 `publish.cmd` produces a self-contained single-file `dist\MicFX.exe`.
 
+Tests cover the DSP (suppression, gate, limiter, loudness meter against EBU
+Tech 3341 cases, drift compensation, input selection):
+
+```
+dotnet test tests/MicFX.Tests
+```
+
+RNNoise tests need the native library; pass one with
+`-p:RnNoiseLib=<path>` or they are skipped. The release workflow builds it
+and runs the suite with `MICFX_REQUIRE_RNNOISE=1`, so a broken native build
+fails the release.
+
 Releases are built by `.github/workflows/release.yml` (on a `v*` tag push or
 manual dispatch): it publishes the exe, zips it, compiles the Inno Setup
 installer and creates the GitHub release with all three assets.
@@ -102,7 +121,10 @@ src/MicFX/
     AudioDevices.cs              WASAPI endpoint enumeration and input selection
     DeviceWatcher.cs             endpoint add/remove notifications for auto-switching
     DriftCompensatingSampleProvider.cs  bounds latency against clock drift
-    RnNoiseSampleProvider.cs     RNNoise (ML) denoiser, P/Invoke wrapper
+    RnNoiseSampleProvider.cs     RNNoise (ML) denoiser, strength blend, P/Invoke wrapper
+    VoiceGate.cs                 speech-probability gate
+    PeakLimiterSampleProvider.cs lookahead safety limiter
+    LoudnessMeter.cs             BS.1770 integrated loudness for clip matching
     NoiseSuppressionSampleProvider.cs  spectral denoiser
     NoiseGateSampleProvider.cs   envelope-follower gate
     CompressorSampleProvider.cs  compressor with auto make-up
@@ -115,6 +137,7 @@ src/MicFX/
   EditSoundWindow.xaml(.cs)      per-clip editor (volume, loop, hotkey, preview)
   App.xaml                       theme
 installer/MicFX.iss              Inno Setup script (built in CI)
+tests/MicFX.Tests/               xUnit tests for the audio code
 ```
 
 ## Credits

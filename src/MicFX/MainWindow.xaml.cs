@@ -25,6 +25,7 @@ public class SoundTile
     public uint HotkeyMods { get; set; }
     public uint HotkeyVk { get; set; }
     public string? HotkeyText { get; set; }
+    public double? LoudnessLufs { get; set; }
     public int Index { get; set; }
     public bool IsLooping { get; set; }
 
@@ -130,6 +131,7 @@ public partial class MainWindow : Window
         StartSpectrumTimer();
         TryAutoStart();
         CheckCableSetup();
+        MeasureUnmeasuredClips();
         _ = CheckForUpdatesAsync();
         if (Environment.GetCommandLineArgs().Contains("--updated"))
             txtStatus.Text = $"Updated to v{version.Major}.{version.Minor}.{version.Build} ✓";
@@ -386,18 +388,8 @@ public partial class MainWindow : Window
         sliderSoundVol.Value = settings.SoundboardVolume;
         chkGate.IsChecked = settings.GateEnabled;
         sliderGate.Value = settings.GateThresholdDb;
-        chkDenoise.IsChecked = settings.DenoiseEnabled;
-        sliderDenoise.Value = settings.DenoiseStrengthDb;
-        foreach (ComboBoxItem item in comboDenoiseMode.Items)
-        {
-            if ((string)item.Tag == settings.DenoiseMode)
-            {
-                item.IsSelected = true;
-                break;
-            }
-        }
-        sliderDenoise.Visibility = settings.DenoiseMode == "Spectral" ? Visibility.Visible : Visibility.Collapsed;
-        lblDenoise.Text = settings.DenoiseMode == "Spectral" ? $"{settings.DenoiseStrengthDb:0} dB" : "AI";
+        ShowDenoiseSettings(settings.DenoiseEnabled, settings.DenoiseMode, settings.VoiceGateEnabled);
+        chkMatchLoudness.IsChecked = settings.MatchClipLoudness;
         chkComp.IsChecked = settings.CompressorEnabled;
         sliderComp.Value = settings.CompressorAmount;
         chkMonitor.IsChecked = settings.MonitorEnabled;
@@ -427,7 +419,8 @@ public partial class MainWindow : Window
                 Loop = clip.Loop,
                 HotkeyMods = clip.HotkeyMods,
                 HotkeyVk = clip.HotkeyVk,
-                HotkeyText = clip.HotkeyText
+                HotkeyText = clip.HotkeyText,
+                LoudnessLufs = clip.LoudnessLufs
             });
         }
         RefreshTileIndexes();
@@ -439,7 +432,7 @@ public partial class MainWindow : Window
         engine.SetMasterVolume(settings.MasterVolume);
         engine.SetSoundboardVolume(settings.SoundboardVolume);
         engine.SetGate(settings.GateEnabled, settings.GateThresholdDb);
-        engine.SetDenoise(settings.DenoiseEnabled, settings.DenoiseStrengthDb, settings.DenoiseMode);
+        PushDenoiseToEngine();
         engine.SetCompressor(settings.CompressorEnabled, settings.CompressorAmount);
         engine.SetEqBands(settings.EqBandCount, settings.EqGainsDb);
     }
@@ -468,9 +461,11 @@ public partial class MainWindow : Window
         settings.SoundboardVolume = (float)sliderSoundVol.Value;
         settings.GateEnabled = chkGate.IsChecked == true;
         settings.GateThresholdDb = (float)sliderGate.Value;
+        StoreDenoiseSlider();
         settings.DenoiseEnabled = chkDenoise.IsChecked == true;
-        settings.DenoiseStrengthDb = (float)sliderDenoise.Value;
         settings.DenoiseMode = CurrentDenoiseMode();
+        settings.VoiceGateEnabled = chkVoiceGate.IsChecked == true;
+        settings.MatchClipLoudness = chkMatchLoudness.IsChecked == true;
         settings.CompressorEnabled = chkComp.IsChecked == true;
         settings.CompressorAmount = (float)sliderComp.Value;
         settings.EqBandCount = eqFrequencies.Length;
@@ -485,7 +480,8 @@ public partial class MainWindow : Window
                 Loop = s.Loop,
                 HotkeyMods = s.HotkeyMods,
                 HotkeyVk = s.HotkeyVk,
-                HotkeyText = s.HotkeyText
+                HotkeyText = s.HotkeyText,
+                LoudnessLufs = s.LoudnessLufs
             })
             .ToList();
     }
@@ -692,13 +688,32 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnLevels(float inputDb, float outputDb)
+    // Clip warnings stay lit briefly so a single hot peak is still noticeable.
+    private static readonly TimeSpan ClipHold = TimeSpan.FromMilliseconds(700);
+    private DateTime inputHotUntil;
+    private DateTime outputLimitedUntil;
+
+    private void OnLevels(LevelReport r)
     {
         Dispatcher.BeginInvoke(() =>
         {
-            meterIn.Value = DbToPercent(inputDb);
-            meterOut.Value = DbToPercent(outputDb);
+            var now = DateTime.UtcNow;
+            if (r.InputHot) inputHotUntil = now + ClipHold;
+            if (r.OutputLimited) outputLimitedUntil = now + ClipHold;
+
+            meterIn.Value = DbToPercent(r.InputDb);
+            meterOut.Value = DbToPercent(r.OutputDb);
+            SetMeterWarning(meterIn, now < inputHotUntil,
+                "Input is clipping — lower Mic gain (or the mic's own gain in Windows).");
+            SetMeterWarning(meterOut, now < outputLimitedUntil,
+                "Output hit the limiter — it's being held under -1 dBFS so it won't distort, but you're louder than needed.");
         });
+    }
+
+    private void SetMeterWarning(ProgressBar meter, bool warn, string why)
+    {
+        meter.Foreground = (Brush)FindResource(warn ? "ErrorBrush" : "MeterBrush");
+        meter.ToolTip = warn ? why : null;
     }
 
     private static double DbToPercent(float db) => Math.Clamp((db + 60) / 60 * 100, 0, 100);
@@ -997,8 +1012,10 @@ public partial class MainWindow : Window
         GateEnabled = chkGate.IsChecked == true,
         GateThresholdDb = (float)sliderGate.Value,
         DenoiseEnabled = chkDenoise.IsChecked == true,
-        DenoiseStrengthDb = (float)sliderDenoise.Value,
+        DenoiseStrengthDb = StoreDenoiseSlider().SpectralDb,
+        AiMaxReductionDb = settings.AiMaxReductionDb,
         DenoiseMode = CurrentDenoiseMode(),
+        VoiceGateEnabled = chkVoiceGate.IsChecked == true,
         CompressorEnabled = chkComp.IsChecked == true,
         CompressorAmount = (float)sliderComp.Value,
         EqGainsDb = eqSliders.Select(s => (float)s.Value).ToArray(),
@@ -1010,16 +1027,13 @@ public partial class MainWindow : Window
         sliderMaster.Value = p.MasterVolume;
         chkGate.IsChecked = p.GateEnabled;
         sliderGate.Value = p.GateThresholdDb;
-        chkDenoise.IsChecked = p.DenoiseEnabled;
-        sliderDenoise.Value = p.DenoiseStrengthDb;
-        foreach (ComboBoxItem item in comboDenoiseMode.Items)
-        {
-            if ((string)item.Tag == p.DenoiseMode)
-            {
-                item.IsSelected = true;
-                break;
-            }
-        }
+        settings.DenoiseEnabled = p.DenoiseEnabled;
+        settings.DenoiseMode = p.DenoiseMode;
+        settings.VoiceGateEnabled = p.VoiceGateEnabled;
+        settings.DenoiseStrengthDb = p.DenoiseStrengthDb;
+        settings.AiMaxReductionDb = p.AiMaxReductionDb;
+        ShowDenoiseSettings(p.DenoiseEnabled, p.DenoiseMode, p.VoiceGateEnabled);
+        PushDenoiseToEngine();
         chkComp.IsChecked = p.CompressorEnabled;
         sliderComp.Value = p.CompressorAmount;
         var profileGains = MapGainsToBands(p.EqGainsDb, eqFrequencies);
@@ -1164,20 +1178,75 @@ public partial class MainWindow : Window
         RestartIfRunning();
     }
 
+    // The strength slider is shared by both engines but means something
+    // different in each (AI: 6-60 dB cap, 60 = none; spectral: 6-30 dB), so
+    // each keeps its own stored value and the slider is reloaded on switch.
+    // sliderDenoiseMode records which engine the slider currently holds.
+    private string sliderDenoiseMode = "Ai";
+    private bool denoiseUiUpdating;
+
     private void Denoise_Changed(object sender, RoutedEventArgs e)
     {
-        if (lblDenoise == null || sliderDenoise == null || comboDenoiseMode == null) return;
+        if (initializing || denoiseUiUpdating || sliderDenoise == null || chkVoiceGate == null) return;
         string mode = CurrentDenoiseMode();
-        bool spectral = mode == "Spectral";
-        sliderDenoise.Visibility = spectral ? Visibility.Visible : Visibility.Collapsed;
-        lblDenoise.Text = spectral ? $"{sliderDenoise.Value:0} dB" : "AI";
-        if (initializing) return;
+        StoreDenoiseSlider();                      // value belongs to the engine it was shown for
+        if (mode != sliderDenoiseMode) LoadDenoiseSlider(mode);
 
-        engine.SetDenoise(chkDenoise.IsChecked == true, (float)sliderDenoise.Value, mode);
+        settings.DenoiseEnabled = chkDenoise.IsChecked == true;
+        settings.DenoiseMode = mode;
+        settings.VoiceGateEnabled = chkVoiceGate.IsChecked == true;
+        RefreshDenoiseLabels();
+        PushDenoiseToEngine();
+
         if (chkDenoise.IsChecked == true && mode == "Ai" && !AudioEngine.AiDenoiseAvailable)
             txtStatus.Text = "AI suppression unavailable, using spectral instead " +
                              $"({AudioEngine.AiDenoiseUnavailableReason ?? "unknown reason"}).";
     }
+
+    /// <summary>Saves the slider into the setting of the engine it is showing.</summary>
+    private (float SpectralDb, float AiDb) StoreDenoiseSlider()
+    {
+        if (sliderDenoiseMode == "Ai") settings.AiMaxReductionDb = (float)sliderDenoise.Value;
+        else settings.DenoiseStrengthDb = (float)sliderDenoise.Value;
+        return (settings.DenoiseStrengthDb, settings.AiMaxReductionDb);
+    }
+
+    private void LoadDenoiseSlider(string mode)
+    {
+        denoiseUiUpdating = true;   // range changes coerce Value; don't store those
+        bool ai = mode == "Ai";
+        sliderDenoise.Maximum = ai ? RnNoiseSampleProvider.MaxReductionUnlimited : 30;
+        sliderDenoise.Minimum = 6;
+        sliderDenoise.Value = ai ? settings.AiMaxReductionDb : settings.DenoiseStrengthDb;
+        sliderDenoiseMode = mode;
+        denoiseUiUpdating = false;
+    }
+
+    private void RefreshDenoiseLabels()
+    {
+        bool ai = sliderDenoiseMode == "Ai";
+        chkVoiceGate.Visibility = ai ? Visibility.Visible : Visibility.Collapsed; // needs the AI's speech detection
+        lblDenoise.Text = ai && sliderDenoise.Value >= RnNoiseSampleProvider.MaxReductionUnlimited - 0.5
+            ? "Max"
+            : $"{sliderDenoise.Value:0} dB";
+    }
+
+    /// <summary>Puts denoise controls in a given state without echoing back through the handlers.</summary>
+    private void ShowDenoiseSettings(bool enabled, string mode, bool voiceGate)
+    {
+        denoiseUiUpdating = true;
+        chkDenoise.IsChecked = enabled;
+        foreach (ComboBoxItem item in comboDenoiseMode.Items)
+            if ((string)item.Tag == mode) { item.IsSelected = true; break; }
+        chkVoiceGate.IsChecked = voiceGate;
+        denoiseUiUpdating = false;
+        LoadDenoiseSlider(mode);
+        RefreshDenoiseLabels();
+    }
+
+    private void PushDenoiseToEngine() =>
+        engine.SetDenoise(settings.DenoiseEnabled, settings.DenoiseStrengthDb, settings.DenoiseMode,
+            settings.AiMaxReductionDb, settings.VoiceGateEnabled);
 
     private void Comp_Changed(object sender, RoutedEventArgs e)
     {
@@ -1279,6 +1348,44 @@ public partial class MainWindow : Window
         }
         RefreshTileIndexes();
         RefreshHotkeys();
+        MeasureUnmeasuredClips();
+    }
+
+    /// <summary>
+    /// Measures the loudness of any clip that has not been measured yet, off
+    /// the UI thread (a long file takes a moment to read), then saves. Runs at
+    /// startup for clips added by older versions and after adding new ones.
+    /// </summary>
+    private void MeasureUnmeasuredClips()
+    {
+        var pending = sounds.Where(t => t.LoudnessLufs == null && File.Exists(t.Path)).ToList();
+        if (pending.Count == 0) return;
+        Task.Run(() =>
+        {
+            foreach (var tile in pending)
+            {
+                double? lufs = LoudnessMeter.MeasureFile(tile.Path);
+                Dispatcher.BeginInvoke(() => tile.LoudnessLufs = lufs);
+            }
+            Dispatcher.BeginInvoke(() =>
+            {
+                CollectSettings();
+                settings.Save();
+            });
+        });
+    }
+
+    /// <summary>Clip volume including loudness matching, when that is on and the clip is measured.</summary>
+    private float EffectiveVolume(SoundTile tile, float volume) =>
+        chkMatchLoudness.IsChecked == true && tile.LoudnessLufs is double lufs
+            ? volume * LoudnessMeter.NormalizationGain(lufs)
+            : volume;
+
+    private void MatchLoudness_Changed(object sender, RoutedEventArgs e)
+    {
+        if (initializing) return;
+        settings.MatchClipLoudness = chkMatchLoudness.IsChecked == true;
+        if (settings.MatchClipLoudness) MeasureUnmeasuredClips();
     }
 
     private void EditSound_Click(object sender, RoutedEventArgs e)
@@ -1287,7 +1394,7 @@ public partial class MainWindow : Window
 
         var dialog = new EditSoundWindow(this, tile.Name, tile.Volume, tile.Loop,
             tile.HotkeyMods, tile.HotkeyVk, tile.HotkeyText,
-            preview: volume => TryPreview(tile.Path, volume));
+            preview: volume => TryPreview(tile.Path, EffectiveVolume(tile, volume)));
         bool? ok = dialog.ShowDialog();
         engine.StopPreview();
         if (ok != true) return;
@@ -1369,7 +1476,7 @@ public partial class MainWindow : Window
         }
         try
         {
-            var handle = engine.PlayClip(tile.Path, tile.Volume, tile.Loop);
+            var handle = engine.PlayClip(tile.Path, EffectiveVolume(tile, tile.Volume), tile.Loop);
             if (tile.Loop && handle != null)
             {
                 loopingClips[tile] = handle;
