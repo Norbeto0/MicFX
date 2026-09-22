@@ -71,7 +71,7 @@ public partial class EditSoundWindow : Window
         if (mods.HasFlag(ModifierKeys.Alt)) { winMods |= HotkeyManager.ModAlt; parts.Add("Alt"); }
         if (mods.HasFlag(ModifierKeys.Shift)) { winMods |= HotkeyManager.ModShift; parts.Add("Shift"); }
         if (mods.HasFlag(ModifierKeys.Windows)) { winMods |= HotkeyManager.ModWin; parts.Add("Win"); }
-        parts.Add(key.ToString());
+        parts.Add(KeyName(key));
 
         HotkeyMods = winMods;
         HotkeyVk = (uint)KeyInterop.VirtualKeyFromKey(key);
@@ -79,6 +79,26 @@ public partial class EditSoundWindow : Window
         txtHotkey.Text = HotkeyText;
         lblHotkeyHint.Text = "";
     }
+
+    /// <summary>Readable key name: Key.D1 prints as "D1", which is not what a user pressed.</summary>
+    private static string KeyName(Key key) => key switch
+    {
+        >= Key.D0 and <= Key.D9 => ((char)('0' + (key - Key.D0))).ToString(),
+        >= Key.NumPad0 and <= Key.NumPad9 => $"Num{key - Key.NumPad0}",
+        Key.OemPlus => "+",
+        Key.OemMinus => "-",
+        Key.OemComma => ",",
+        Key.OemPeriod => ".",
+        Key.OemQuestion => "/",
+        Key.OemTilde => "`",
+        Key.OemOpenBrackets => "[",
+        Key.OemCloseBrackets => "]",
+        Key.OemSemicolon => ";",
+        Key.OemQuotes => "'",
+        Key.OemBackslash or Key.OemPipe => "\\",
+        Key.Space => "Space",
+        _ => key.ToString()
+    };
 
     private void Preview_Click(object sender, RoutedEventArgs e) => preview?.Invoke(ClipVolume);
 

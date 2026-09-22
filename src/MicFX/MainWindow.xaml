@@ -128,7 +128,18 @@
             <!-- Devices, levels, clean-up: no scroll; the window's min height is
                  computed from this panel at runtime, and the last card stretches
                  so an enlarged window never shows a blank corner -->
-            <Grid x:Name="leftPanel" Grid.Column="0" Grid.RowSpan="2" Margin="0,0,10,0">
+            <!-- Devices, levels, monitor, clean-up. The ScrollViewer is what
+                 makes the height measurement honest: inside it the column is
+                 measured with unlimited height, so the star-sized last row
+                 reports its natural size instead of whatever space it happens
+                 to have. It still stretches to fill the viewport when there is
+                 room, and shows a scrollbar instead of clipping when there is
+                 not (small screens, high DPI, notice bar visible). -->
+            <ScrollViewer Grid.Column="0" Grid.RowSpan="2" Margin="0,0,10,0"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Focusable="False">
+                <Grid x:Name="leftPanel">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -252,7 +263,8 @@
                                 ValueChanged="Comp_Changed" Margin="0,2,0,0"/>
                     </StackPanel>
                 </GroupBox>
-            </Grid>
+                </Grid>
+            </ScrollViewer>
 
             <!-- Right top: equalizer with the live spectrum behind it -->
             <GroupBox Grid.Column="1" Grid.Row="0" Header="EQUALIZER">

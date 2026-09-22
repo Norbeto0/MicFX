@@ -133,7 +133,9 @@ public partial class MainWindow : Window
         if (Environment.GetCommandLineArgs().Contains("--updated"))
             txtStatus.Text = $"Updated to v{version.Major}.{version.Minor}.{version.Build} ✓";
 
-        Loaded += (_, _) => UpdateMinHeight();
+        // Run after the first full layout pass, so the left column has been
+        // measured and DesiredSize is meaningful.
+        Loaded += (_, _) => Dispatcher.BeginInvoke(UpdateMinHeight, DispatcherPriority.Loaded);
         noticeBar.IsVisibleChanged += (_, _) =>
             Dispatcher.BeginInvoke(UpdateMinHeight, DispatcherPriority.Loaded);
 
@@ -228,15 +230,22 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// The window's minimum height is whatever the left column actually needs
-    /// (measured, not guessed) — CLEAN-UP can never be cut off. The first
-    /// layout also snaps the window to exactly that height.
+    /// (measured, not guessed), capped so it can never exceed the screen. The
+    /// column lives in a ScrollViewer, so it is measured with unlimited height
+    /// and DesiredSize is its true natural height; if the cap bites, the
+    /// scrollbar keeps every control reachable instead of clipping.
     /// </summary>
     private void UpdateMinHeight()
     {
         if (!IsLoaded || ActualHeight <= 0 || mainArea.ActualHeight <= 0) return;
         double chrome = ActualHeight - mainArea.ActualHeight;
         if (chrome <= 0 || double.IsNaN(chrome)) return;
-        double min = Math.Ceiling(leftPanel.DesiredSize.Height + chrome) + 2;
+
+        double natural = Math.Ceiling(leftPanel.DesiredSize.Height + chrome) + 2;
+        double cap = Math.Max(480, SystemParameters.WorkArea.Height - 20);
+        double min = Math.Min(natural, cap);
+        if (min <= 0 || double.IsNaN(min)) return;
+
         MinHeight = min;
         if (!startHeightSet)
         {
