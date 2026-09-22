@@ -588,6 +588,7 @@ public partial class MainWindow : Window
             UpdateProbe();
             ApplyMonitor();
             btnStartStop.Content = "Stop";
+            SetStatusDot("running");
             txtStatus.Text = $"Running — {mic.Name}  →  {render.Name}  (~{engine.EstimatedLatencyMs} ms)";
             if (engine.CaptureNote != null)
                 txtStatus.Text += $"  ({engine.CaptureNote})";
@@ -597,9 +598,19 @@ public partial class MainWindow : Window
             engine.Stop();
             activeInputId = null;
             btnStartStop.Content = "Start";
+            SetStatusDot("error");
             txtStatus.Text = "Error: " + ex.Message;
         }
     }
+
+    /// <summary>Colours the header dot: running, stopped or failed.</summary>
+    private void SetStatusDot(string state) =>
+        statusDot.Fill = (Brush)FindResource(state switch
+        {
+            "running" => "MeterBrush",
+            "error" => "ErrorBrush",
+            _ => "IdleBrush"
+        });
 
     /// <summary>
     /// Watches for devices appearing and disappearing so the preferred mic can
@@ -651,6 +662,7 @@ public partial class MainWindow : Window
     {
         engine.Stop();
         btnStartStop.Content = "Start";
+        SetStatusDot("idle");
         txtStatus.Text = "Stopped";
         meterIn.Value = 0;
         meterOut.Value = 0;
