@@ -9,20 +9,15 @@ The binaries are unsigned, so SmartScreen may warn on first run
 
 ### Fixed
 
-- The CLEAN-UP section could be cut off at the bottom of the left column with
-  no way to scroll to it. The window sizes itself to fit that column, but the
-  measurement was wrong: the column is a grid whose last row is stretch-sized,
-  and such a grid reports only the space it already has rather than the space
-  it needs, so the minimum height never grew. The column now sits in a scroll
-  area, which measures it with unlimited height and makes the figure correct,
-  still stretches it to fill the window when there is room, and falls back to
-  a scrollbar instead of clipping when there is not.
-- The minimum height is additionally capped to the screen's work area, so on a
-  small display or at a high DPI scale the window can no longer ask to be
-  taller than the screen.
-- Custom soundboard hotkeys with a digit were displayed using the internal key
-  name, for example "Ctrl+D1" instead of "Ctrl+1". Numeric, numpad and
-  punctuation keys are now labelled the way they are typed.
+- The window opened far taller than it needed to be. Sizing it to fit the
+  whole left column made sense while that column could be clipped, but now
+  that the column scrolls the two no longer have to match. The window opens
+  at the height that shows the column, capped so it never takes over the
+  screen, and can be made considerably smaller by hand.
+- The left column itself is more compact: tighter card padding and spacing,
+  the device Refresh button moved up beside the Microphone label, and the
+  noise suppression strength slider is hidden rather than greyed out while
+  the AI engine is selected, since it only applies to the spectral one.
 
 ### First-time setup
 

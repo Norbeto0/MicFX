@@ -279,7 +279,7 @@
         </Style>
 
         <ControlTemplate x:Key="HorizontalSlider" TargetType="Slider">
-            <Grid Background="Transparent" MinHeight="22">
+            <Grid Background="Transparent" MinHeight="20">
                 <Track x:Name="PART_Track">
                     <Track.DecreaseRepeatButton>
                         <RepeatButton Command="Slider.DecreaseLarge" Style="{StaticResource SliderFilled}"/>
@@ -434,7 +434,7 @@
 
         <Style TargetType="GroupBox">
             <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
-            <Setter Property="Margin" Value="0,0,0,10"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="GroupBox">
@@ -449,8 +449,8 @@
                                                   TextBlock.FontWeight="SemiBold"
                                                   TextBlock.FontSize="11"
                                                   TextBlock.Foreground="{StaticResource SubtleTextBrush}"
-                                                  Margin="14,11,14,7"/>
-                                <ContentPresenter Margin="14,0,14,13"/>
+                                                  Margin="12,9,12,6"/>
+                                <ContentPresenter Margin="12,0,12,10"/>
                             </DockPanel>
                         </Border>
                     </ControlTemplate>
@@ -485,7 +485,7 @@
 
         <Style TargetType="ComboBox">
             <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
-            <Setter Property="Height" Value="30"/>
+            <Setter Property="Height" Value="28"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">

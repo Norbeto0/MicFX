@@ -56,6 +56,7 @@ public partial class MainWindow : Window
     private readonly Complex[] spectrumFft = new Complex[SpectrumTapSampleProvider.WindowSize];
 
     private float[] eqFrequencies = EqualizerSampleProvider.BuildFrequencies(10);
+    private const double MinWindowHeight = 520;
     private bool startHeightSet;
     private static readonly AudioDeviceInfo NoDevice = new("", "(none)");
 
@@ -229,11 +230,9 @@ public partial class MainWindow : Window
     // ---------- setup ----------
 
     /// <summary>
-    /// The window's minimum height is whatever the left column actually needs
-    /// (measured, not guessed), capped so it can never exceed the screen. The
-    /// column lives in a ScrollViewer, so it is measured with unlimited height
-    /// and DesiredSize is its true natural height; if the cap bites, the
-    /// scrollbar keeps every control reachable instead of clipping.
+    /// The left column scrolls, so the window no longer has to be as tall as
+    /// it: a modest floor keeps it usable, and the first layout opens it at
+    /// the height that shows the whole column without taking over the screen.
     /// </summary>
     private void UpdateMinHeight()
     {
@@ -241,21 +240,16 @@ public partial class MainWindow : Window
         double chrome = ActualHeight - mainArea.ActualHeight;
         if (chrome <= 0 || double.IsNaN(chrome)) return;
 
-        double natural = Math.Ceiling(leftPanel.DesiredSize.Height + chrome) + 2;
-        double cap = Math.Max(480, SystemParameters.WorkArea.Height - 20);
-        double min = Math.Min(natural, cap);
-        if (min <= 0 || double.IsNaN(min)) return;
+        MinHeight = MinWindowHeight;
+        if (startHeightSet) return;
+        startHeightSet = true;
 
-        MinHeight = min;
-        if (!startHeightSet)
-        {
-            Height = min;
-            startHeightSet = true;
-        }
-        else if (ActualHeight < min)
-        {
-            Height = min;
-        }
+        double natural = Math.Ceiling(leftPanel.DesiredSize.Height + chrome) + 2;
+        // Prefer a height that shows the whole column, but never open larger
+        // than this: anything that does not fit stays reachable by scrolling.
+        double cap = Math.Max(MinWindowHeight, Math.Min(780, SystemParameters.WorkArea.Height * 0.85));
+        if (double.IsNaN(natural) || natural <= 0) return;
+        Height = Math.Clamp(natural, MinWindowHeight, cap);
     }
 
     private void BuildEqSliders(float[]? gains = null)
@@ -402,7 +396,7 @@ public partial class MainWindow : Window
                 break;
             }
         }
-        sliderDenoise.IsEnabled = settings.DenoiseMode == "Spectral";
+        sliderDenoise.Visibility = settings.DenoiseMode == "Spectral" ? Visibility.Visible : Visibility.Collapsed;
         lblDenoise.Text = settings.DenoiseMode == "Spectral" ? $"{settings.DenoiseStrengthDb:0} dB" : "AI";
         chkComp.IsChecked = settings.CompressorEnabled;
         sliderComp.Value = settings.CompressorAmount;
@@ -1175,7 +1169,7 @@ public partial class MainWindow : Window
         if (lblDenoise == null || sliderDenoise == null || comboDenoiseMode == null) return;
         string mode = CurrentDenoiseMode();
         bool spectral = mode == "Spectral";
-        sliderDenoise.IsEnabled = spectral;
+        sliderDenoise.Visibility = spectral ? Visibility.Visible : Visibility.Collapsed;
         lblDenoise.Text = spectral ? $"{sliderDenoise.Value:0} dB" : "AI";
         if (initializing) return;
 
