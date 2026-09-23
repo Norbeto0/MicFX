@@ -101,7 +101,8 @@ fails the release.
 
 Releases are built by `.github/workflows/release.yml` (on a `v*` tag push or
 manual dispatch): it publishes the exe, zips it, compiles the Inno Setup
-installer and creates the GitHub release with all three assets.
+installer and creates the GitHub release with all three assets. A manual run
+with "dry run" checked builds and tests everything without publishing.
 
 ## Troubleshooting
 

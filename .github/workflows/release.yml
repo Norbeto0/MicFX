@@ -9,6 +9,10 @@ on:
         description: 'Release tag (e.g. v1.10.0)'
         required: true
         default: v1.10.0
+      dry_run:
+        description: 'Build and test only, do not publish'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -19,9 +23,9 @@ jobs:
     env:
       TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 8.0.x
 
@@ -94,8 +98,10 @@ jobs:
           Move-Item installer\Output\MicFX-Setup.exe "MicFX-Setup-$env:TAG.exe"
 
       # Creates the tag at the built commit if it doesn't exist yet, then the
-      # release with the installer, exe and zip attached.
+      # release with the installer, exe and zip attached. Skipped on a dry run;
+      # tag pushes have no inputs, so they always publish.
       - name: Create GitHub release
+        if: ${{ !inputs.dry_run }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
