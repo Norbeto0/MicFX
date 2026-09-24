@@ -59,6 +59,10 @@ public partial class MainWindow : Window
 
     private float[] eqFrequencies = EqualizerSampleProvider.BuildFrequencies(10);
     private const double MinWindowHeight = 520;
+    // The EQ grows with the window up to EqMaxHeight (enough slider travel for
+    // fine adjustments); beyond that the soundboard gets the extra height.
+    private const double EqMaxHeight = 400;
+    private const double SoundboardMinHeight = 200;
     private bool startHeightSet;
     private static readonly AudioDeviceInfo NoDevice = new("", "(none)");
 
@@ -73,6 +77,14 @@ public partial class MainWindow : Window
     private DispatcherTimer? autoSwitchTimer;
     private readonly MicActivityProbe probe = new();
     private string? activeInputId;
+    private string runningStatus = "";
+
+    // Monitor recovery: a failed or missing headphone device is retried by
+    // EnsureMonitor, but not more often than this allows.
+    private DateTime nextMonitorAttempt;
+    private static readonly TimeSpan MonitorRetryAfterReset = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan MonitorRetryAfterError = TimeSpan.FromSeconds(5);
+    private DateTime lastOutputRestart;
     private HotkeyManager? hotkeys;
     private WinForms.NotifyIcon? trayIcon;
     private WinForms.ToolStripMenuItem? trayProfilesMenu;
@@ -114,6 +126,8 @@ public partial class MainWindow : Window
         icSounds.ItemsSource = sounds;
         engine.LevelsAvailable += OnLevels;
         engine.ClipEnded += OnClipEndedUi;
+        engine.MonitorFailed += _ => Dispatcher.BeginInvoke(OnMonitorFailed);
+        engine.OutputFailed += ex => Dispatcher.BeginInvoke(() => OnOutputFailed(ex));
 
         comboEqPreset.Items.Add("Presets…");
         foreach (var name in EqPresets.Keys)
@@ -142,6 +156,7 @@ public partial class MainWindow : Window
 
         // Run after the first full layout pass, so the left column has been
         // measured and DesiredSize is meaningful.
+        mainArea.SizeChanged += (_, _) => FitEqHeight();
         Loaded += (_, _) => Dispatcher.BeginInvoke(UpdateMinHeight, DispatcherPriority.Loaded);
         noticeBar.IsVisibleChanged += (_, _) =>
             Dispatcher.BeginInvoke(UpdateMinHeight, DispatcherPriority.Loaded);
@@ -258,6 +273,9 @@ public partial class MainWindow : Window
         Height = Math.Clamp(natural, MinWindowHeight, cap);
     }
 
+    private void FitEqHeight() =>
+        eqRow.Height = new GridLength(Math.Clamp(mainArea.ActualHeight - SoundboardMinHeight, 0, EqMaxHeight));
+
     private void BuildEqSliders(float[]? gains = null)
     {
         for (int i = 0; i < eqFrequencies.Length; i++)
@@ -344,20 +362,18 @@ public partial class MainWindow : Window
         var captureDevices = AudioDevices.GetCaptureDevices();
         comboMic.ItemsSource = captureDevices;
 
-        // The auto-switch list keeps a remembered device even while it is
-        // unplugged, so the choice survives the headset being disconnected.
-        var preferredItems = new List<AudioDeviceInfo> { NoDevice };
-        preferredItems.AddRange(captureDevices);
-        if (!string.IsNullOrEmpty(selectedPreferred) && preferredItems.All(d => d.Id != selectedPreferred))
-        {
-            string remembered = settings.PreferredInputDeviceName ?? "remembered device";
-            preferredItems.Add(new AudioDeviceInfo(selectedPreferred, $"{remembered} (not connected)"));
-        }
-        comboMicPreferred.ItemsSource = preferredItems;
+        // The auto-switch and monitor lists keep a remembered device even while
+        // it is unplugged or switched off, so the choice survives until it is back.
+        comboMicPreferred.ItemsSource = AudioDevices.WithRemembered(
+            captureDevices.Prepend(NoDevice), selectedPreferred, settings.PreferredInputDeviceName);
 
         var renderDevices = AudioDevices.GetRenderDevices();
         comboOutput.ItemsSource = renderDevices;
-        comboMonitor.ItemsSource = renderDevices.ToList();
+        comboMonitor.ItemsSource = AudioDevices.WithRemembered(
+            renderDevices, selectedMon, settings.MonitorDeviceName);
+        // Learn the name while the device is visible, for the placeholder later.
+        if (renderDevices.FirstOrDefault(d => d.Id == selectedMon) is { } monitorDevice)
+            settings.MonitorDeviceName = monitorDevice.Name;
 
         SelectById(comboMic, selectedMic);
         SelectById(comboOutput, selectedOut);
@@ -441,14 +457,19 @@ public partial class MainWindow : Window
         engine.SetEqBands(settings.EqBandCount, settings.EqGainsDb);
     }
 
+    /// <summary>A device's name without the "(not connected)" placeholder suffix.</summary>
+    private static string DeviceName(AudioDeviceInfo device) =>
+        device.Name.EndsWith(AudioDevices.NotConnectedSuffix, StringComparison.Ordinal)
+            ? device.Name[..^AudioDevices.NotConnectedSuffix.Length]
+            : device.Name;
+
     private void CollectSettings()
     {
         settings.InputDeviceId = (comboMic.SelectedItem as AudioDeviceInfo)?.Id;
         if (comboMicPreferred.SelectedItem is AudioDeviceInfo preferred && preferred.Id.Length > 0)
         {
             settings.PreferredInputDeviceId = preferred.Id;
-            // Strip the "(not connected)" suffix so it isn't baked into the name.
-            settings.PreferredInputDeviceName = preferred.Name.Replace(" (not connected)", "");
+            settings.PreferredInputDeviceName = DeviceName(preferred);
         }
         else
         {
@@ -456,7 +477,9 @@ public partial class MainWindow : Window
             settings.PreferredInputDeviceName = null;
         }
         settings.OutputDeviceId = (comboOutput.SelectedItem as AudioDeviceInfo)?.Id;
-        settings.MonitorDeviceId = (comboMonitor.SelectedItem as AudioDeviceInfo)?.Id;
+        var monitor = comboMonitor.SelectedItem as AudioDeviceInfo;
+        settings.MonitorDeviceId = monitor?.Id;
+        settings.MonitorDeviceName = monitor == null ? null : DeviceName(monitor);
         settings.MonitorEnabled = chkMonitor.IsChecked == true;
         settings.MonitorVoiceVolume = (float)sliderMonitorVoice.Value;
         settings.MonitorSoundVolume = (float)sliderMonitorSound.Value;
@@ -592,9 +615,10 @@ public partial class MainWindow : Window
             ApplyMonitor();
             btnStartStop.Content = "Stop";
             SetStatusDot("running");
-            txtStatus.Text = $"Running — {mic.Name}  →  {render.Name}  (~{engine.EstimatedLatencyMs} ms)";
+            runningStatus = $"Running — {mic.Name}  →  {render.Name}  (~{engine.EstimatedLatencyMs} ms)";
             if (engine.CaptureNote != null)
-                txtStatus.Text += $"  ({engine.CaptureNote})";
+                runningStatus += $"  ({engine.CaptureNote})";
+            txtStatus.Text = runningStatus;
         }
         catch (Exception ex)
         {
@@ -640,7 +664,11 @@ public partial class MainWindow : Window
         // Presence changes alone cannot tell whether a virtual mic is live, so
         // poll its activity as well.
         autoSwitchTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        autoSwitchTimer.Tick += (_, _) => EvaluateAutoSwitch();
+        autoSwitchTimer.Tick += (_, _) =>
+        {
+            EvaluateAutoSwitch();
+            EnsureMonitor();
+        };
         autoSwitchTimer.Start();
         UpdateProbe();
     }
@@ -659,6 +687,8 @@ public partial class MainWindow : Window
         }
         if (chosen.Id != activeInputId)
             StartEngine(); // restarts on the newly preferred/available mic
+        else
+            EnsureMonitor(); // e.g. the headphones were just switched on
     }
 
     private void StopEngine()
@@ -679,17 +709,65 @@ public partial class MainWindow : Window
     private void ApplyMonitor()
     {
         if (!engine.IsRunning) return;
+        var info = comboMonitor.SelectedItem as AudioDeviceInfo;
+        if (chkMonitor.IsChecked != true || info == null || !AudioDevices.IsActiveRender(info.Id))
+        {
+            // Off, or the headphones aren't connected right now (the list shows
+            // them as "not connected"); EnsureMonitor opens them once they are.
+            engine.SetMonitor(null, false);
+            return;
+        }
         try
         {
-            var device = comboMonitor.SelectedItem is AudioDeviceInfo info
-                ? AudioDevices.GetDevice(info.Id)
-                : null;
-            engine.SetMonitor(device, chkMonitor.IsChecked == true);
+            engine.SetMonitor(AudioDevices.GetDevice(info.Id), true);
+            if (txtStatus.Text.StartsWith("Monitor error", StringComparison.Ordinal))
+                txtStatus.Text = runningStatus;
         }
         catch (Exception ex)
         {
+            nextMonitorAttempt = DateTime.UtcNow + MonitorRetryAfterError;
             txtStatus.Text = "Monitor error: " + ex.Message;
         }
+    }
+
+    /// <summary>
+    /// Opens the monitor when it should be playing but isn't: the headphones
+    /// were switched on after MicFX started, or their stream died (power
+    /// cycle, format change). Runs every second, so it does nothing — not even
+    /// a device lookup — while the monitor is playing on the selected device.
+    /// </summary>
+    private void EnsureMonitor()
+    {
+        if (!engine.IsRunning || chkMonitor.IsChecked != true) return;
+        if (comboMonitor.SelectedItem is not AudioDeviceInfo info) return;
+        if (engine.MonitorPlaying && engine.MonitorDeviceId == info.Id) return;
+        if (DateTime.UtcNow < nextMonitorAttempt || !AudioDevices.IsActiveRender(info.Id)) return;
+        ApplyMonitor();
+    }
+
+    private void OnMonitorFailed()
+    {
+        // A device that reset (format change, power blip) is usually back
+        // within a moment; one that was switched off returns via the watcher.
+        nextMonitorAttempt = DateTime.UtcNow + MonitorRetryAfterReset;
+    }
+
+    /// <summary>
+    /// The virtual cable stream died (e.g. its format was changed). Restart
+    /// the engine to reopen it, but give up if it keeps failing right away.
+    /// </summary>
+    private void OnOutputFailed(Exception ex)
+    {
+        if (!engine.IsRunning) return;
+        if (DateTime.UtcNow - lastOutputRestart < TimeSpan.FromSeconds(5))
+        {
+            StopEngine();
+            SetStatusDot("error");
+            txtStatus.Text = "Output device keeps failing: " + ex.Message;
+            return;
+        }
+        lastOutputRestart = DateTime.UtcNow;
+        StartEngine();
     }
 
     // Clip warnings stay lit briefly so a single hot peak is still noticeable.

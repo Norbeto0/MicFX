@@ -128,20 +128,12 @@ public class RnNoiseTests
     {
         var dir = Environment.GetEnvironmentVariable("MICFX_PARITY_DIR");
         if (dir == null || !Ready()) return;
-        var input = ReadF32(Path.Combine(dir, "parity_in.f32"));
-        var reference = ReadF32(Path.Combine(dir, $"parity_ref_{label}.f32"));
+        var input = TestSignals.ReadF32(Path.Combine(dir, "parity_in.f32"));
+        var reference = TestSignals.ReadF32(Path.Combine(dir, $"parity_ref_{label}.f32"));
         using var dn = new RnNoiseSampleProvider(TestSignals.FromArray(input)) { Enabled = true, MaxReductionDb = maxReductionDb };
         var y = TestSignals.ReadAll(dn, reference.Length);
         double maxErr = 0;
         for (int i = 0; i < reference.Length; i++) maxErr = Math.Max(maxErr, Math.Abs(y[i] - reference[i]));
         Assert.True(maxErr < 1e-4, $"{label}: max deviation {maxErr:E2}");
-    }
-
-    private static float[] ReadF32(string path)
-    {
-        var bytes = File.ReadAllBytes(path);
-        var f = new float[bytes.Length / 4];
-        Buffer.BlockCopy(bytes, 0, f, 0, bytes.Length);
-        return f;
     }
 }

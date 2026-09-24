@@ -28,6 +28,15 @@ internal static class TestSignals
         return result;
     }
 
+    /// <summary>Raw little-endian float32 samples, as written by numpy's tofile.</summary>
+    public static float[] ReadF32(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        var f = new float[bytes.Length / 4];
+        Buffer.BlockCopy(bytes, 0, f, 0, bytes.Length);
+        return f;
+    }
+
     public static double RmsDb(ReadOnlySpan<float> x)
     {
         double sum = 0;

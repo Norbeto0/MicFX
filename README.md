@@ -18,13 +18,15 @@ mic -> gain -> noise suppression -> gate -> EQ -> compressor
   +/-15 dB), presets, live spectrum display behind the sliders
 - Noise suppression with two engines: AI (RNNoise 0.2, a recurrent neural
   network that removes everything that is not voice, including keyboard
-  clicks) and spectral (STFT with adaptive noise floor). Both have a strength
+  clicks) and spectral (STFT with decision-directed Wiener gains, for steady
+  noise, without the "musical noise" artifacts). Both have a strength
   control. Applied to the mic before the soundboard is mixed in, so clips are
   never affected
 - Optional voice gate that silences the mic between phrases using the AI
   engine's speech detection, so loud non-voice sounds do not open it
 - Noise gate with adjustable threshold
-- Compressor ("voice leveler") with automatic make-up gain
+- Compressor ("voice leveler") with automatic make-up gain, which lifts the
+  voice but not the silence between words
 - Soundboard mixed into the mic stream: per-clip volume, loop mode, custom
   global hotkeys (Ctrl+Alt+1..9 by default), headphone-only preview
 - Profiles for saving and switching complete configurations, also from the
@@ -37,7 +39,8 @@ mic -> gain -> noise suppression -> gate -> EQ -> compressor
   switch is driven by audio activity rather than by device presence
 - Monitoring on a separate output device with independent levels for your own
   voice and the soundboard, so you can hear clips loudly while keeping your
-  own voice quiet
+  own voice quiet. The monitor reconnects on its own when the headphones are
+  switched on later or reset, and stays selected while they are off
 - Input/output level meters that turn red when the mic input clips or the
   output limiter engages; mic gain, master volume
 - Safety limiter (-1 dBFS, 1 ms lookahead) on the output and on the headphone

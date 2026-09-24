@@ -4,6 +4,9 @@ using NAudio.Wave.SampleProviders;
 
 namespace MicFX.Audio;
 
+/// <summary>One meter update: levels in dB plus clip warnings.</summary>
+public readonly record struct LevelReport(float InputDb, float OutputDb, bool InputHot, bool OutputLimited);
+
 /// <summary>
 /// Owns the whole real-time graph:
 ///
@@ -20,9 +23,6 @@ namespace MicFX.Audio;
 /// call from the UI thread while the graph is running, and are remembered so a
 /// later Start() picks them up.
 /// </summary>
-/// <summary>One meter update: levels in dB plus clip warnings.</summary>
-public readonly record struct LevelReport(float InputDb, float OutputDb, bool InputHot, bool OutputLimited);
-
 public class AudioEngine : IDisposable
 {
     public const int SampleRate = 48000;
@@ -123,7 +123,6 @@ public class AudioEngine : IDisposable
     /// <summary>Takes effect on the next Start(); the UI restarts the engine after changing it.</summary>
     public void SetLatencyMode(string mode) => latencyMode = mode;
 
-    /// <summary>Raised from the audio thread with (input dB, output dB) roughly 20×/second.</summary>
     /// <summary>
     /// Raised from the audio thread roughly 20×/second with input and output
     /// peak levels in dB, whether the input came close to clipping (mic gain
@@ -133,6 +132,25 @@ public class AudioEngine : IDisposable
 
     /// <summary>Raised (from the audio thread) when a soundboard clip finishes or is stopped.</summary>
     public event Action<object>? ClipEnded;
+
+    /// <summary>
+    /// Raised when the monitor device stops on its own: switched off,
+    /// unplugged, or reset by a format change. The monitor is already torn
+    /// down; call SetMonitor again once the device is usable. NAudio posts
+    /// this to the SynchronizationContext that SetMonitor ran on (the UI thread).
+    /// </summary>
+    public event Action<Exception>? MonitorFailed;
+
+    /// <summary>
+    /// Same for the main output (the virtual cable). The graph keeps running
+    /// but nothing reaches the output until the engine is restarted.
+    /// </summary>
+    public event Action<Exception>? OutputFailed;
+
+    /// <summary>Endpoint the monitor is playing on; null while it is off.</summary>
+    public string? MonitorDeviceId { get; private set; }
+
+    public bool MonitorPlaying => monitorOutput?.PlaybackState == PlaybackState.Playing;
 
     public void Start(MMDevice input, MMDevice render)
     {
@@ -220,7 +238,15 @@ public class AudioEngine : IDisposable
             LevelsAvailable?.Invoke(report);
         };
 
-        output = new WasapiOut(render, AudioClientShareMode.Shared, true, OutputLatencyMs);
+        var mainOut = new WasapiOut(render, AudioClientShareMode.Shared, true, OutputLatencyMs);
+        // Stops we initiate carry no exception and happen after `output` has
+        // been replaced, so only a failure of the live stream gets through.
+        mainOut.PlaybackStopped += (_, e) =>
+        {
+            if (e.Exception != null && ReferenceEquals(mainOut, output))
+                OutputFailed?.Invoke(e.Exception);
+        };
+        output = mainOut;
         output.Init(new SampleToWaveProvider(outputMeter));
 
         output.Play();
@@ -286,15 +312,7 @@ public class AudioEngine : IDisposable
     /// </summary>
     public void SetMonitor(MMDevice? device, bool enabled)
     {
-        if (voiceTee != null) voiceTee.Enabled = false;
-        if (soundTee != null) soundTee.Enabled = false;
-        try { monitorOutput?.Stop(); } catch { /* device may already be gone */ }
-        monitorOutput?.Dispose();
-        monitorOutput = null;
-        monitorVoiceVolume = null;
-        monitorSoundVolume = null;
-        monitorVoiceBuffer?.ClearBuffer();
-        monitorSoundBuffer?.ClearBuffer();
+        StopMonitor();
 
         if (!IsRunning || !enabled || device == null ||
             voiceTee == null || soundTee == null ||
@@ -315,12 +333,44 @@ public class AudioEngine : IDisposable
         monitorMixer.AddMixerInput((ISampleProvider)monitorVoiceVolume);
         monitorMixer.AddMixerInput((ISampleProvider)monitorSoundVolume);
 
-        monitorOutput = new WasapiOut(device, AudioClientShareMode.Shared, true, OutputLatencyMs);
-        // Monitor levels go up to 150% per source: protect the listener's ears too.
-        monitorOutput.Init(new SampleToWaveProvider(new PeakLimiterSampleProvider(monitorMixer)));
-        monitorOutput.Play();
+        var opened = new WasapiOut(device, AudioClientShareMode.Shared, true, OutputLatencyMs);
+        opened.PlaybackStopped += (_, e) =>
+        {
+            // Ignore our own stops (no exception) and stale instances.
+            if (e.Exception == null || !ReferenceEquals(opened, monitorOutput)) return;
+            StopMonitor();
+            MonitorFailed?.Invoke(e.Exception);
+        };
+        monitorOutput = opened;
+        try
+        {
+            // Monitor levels go up to 150% per source: protect the listener's ears too.
+            opened.Init(new SampleToWaveProvider(new PeakLimiterSampleProvider(monitorMixer)));
+            opened.Play();
+        }
+        catch
+        {
+            StopMonitor();
+            throw;
+        }
+        MonitorDeviceId = device.ID;
         voiceTee.Enabled = true;
         soundTee.Enabled = true;
+    }
+
+    private void StopMonitor()
+    {
+        if (voiceTee != null) voiceTee.Enabled = false;
+        if (soundTee != null) soundTee.Enabled = false;
+        var old = monitorOutput;
+        monitorOutput = null; // first, so its PlaybackStopped is recognised as stale
+        MonitorDeviceId = null;
+        monitorVoiceVolume = null;
+        monitorSoundVolume = null;
+        try { old?.Stop(); } catch { /* device may already be gone */ }
+        old?.Dispose();
+        monitorVoiceBuffer?.ClearBuffer();
+        monitorSoundBuffer?.ClearBuffer();
     }
 
     /// <summary>Live monitor levels: how loud your own voice and the soundboard are in your headphones.</summary>
@@ -336,15 +386,14 @@ public class AudioEngine : IDisposable
     {
         IsRunning = false;
         StopAllClips();
+        StopMonitor();
+        var oldOutput = output;
+        output = null; // before stopping, so its PlaybackStopped is recognised as ours
         try { capture?.StopRecording(); } catch { }
-        try { output?.Stop(); } catch { }
-        try { monitorOutput?.Stop(); } catch { }
+        try { oldOutput?.Stop(); } catch { }
         capture?.Dispose();
         capture = null;
-        output?.Dispose();
-        output = null;
-        monitorOutput?.Dispose();
-        monitorOutput = null;
+        oldOutput?.Dispose();
         if (soundMixer != null) soundMixer.MixerInputEnded -= OnClipEnded;
         micBuffer = null;
         monitorVoiceBuffer = null;
@@ -354,8 +403,6 @@ public class AudioEngine : IDisposable
         soundboardVolume = null;
         masterVolume = null;
         outputLimiter = null;
-        monitorVoiceVolume = null;
-        monitorSoundVolume = null;
         aiDenoise?.Dispose();
         aiDenoise = null;
         denoise = null;

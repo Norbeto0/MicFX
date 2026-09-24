@@ -145,9 +145,11 @@
                 <ColumnDefinition Width="300"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
+            <!-- EQ row height is set by FitEqHeight: it grows with the window up
+                 to a cap, then the soundboard takes the extra height. -->
             <Grid.RowDefinitions>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="200"/>
+                <RowDefinition x:Name="eqRow" Height="*"/>
+                <RowDefinition Height="*" MinHeight="200"/>
             </Grid.RowDefinitions>
 
             <!-- Devices, levels, clean-up: no scroll; the window's min height is

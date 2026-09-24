@@ -27,6 +27,37 @@ public static class AudioDevices
         return enumerator.GetDevice(id);
     }
 
+    /// <summary>True when the render endpoint exists and is currently usable (plugged in and enabled).</summary>
+    public static bool IsActiveRender(string id)
+    {
+        try
+        {
+            using var device = GetDevice(id);
+            return device.State == DeviceState.Active;
+        }
+        catch
+        {
+            return false; // unknown id: the device was removed from the system
+        }
+    }
+
+    public const string NotConnectedSuffix = " (not connected)";
+
+    /// <summary>
+    /// The device list for a picker that must keep a remembered choice while
+    /// that device is switched off or unplugged: when <paramref name="id"/> is
+    /// not among <paramref name="devices"/>, a placeholder entry with the same
+    /// id is appended, so the selection (and the saved setting) survives until
+    /// the device comes back.
+    /// </summary>
+    public static List<AudioDeviceInfo> WithRemembered(IEnumerable<AudioDeviceInfo> devices, string? id, string? name)
+    {
+        var list = devices.ToList();
+        if (!string.IsNullOrEmpty(id) && list.All(d => d.Id != id))
+            list.Add(new AudioDeviceInfo(id, (name ?? "remembered device") + NotConnectedSuffix));
+        return list;
+    }
+
     public static string? GetDefaultRenderDeviceId()
     {
         var enumerator = new MMDeviceEnumerator();

@@ -43,6 +43,7 @@ public class AppSettings
     public string? PreferredInputDeviceName { get; set; }
     public string? OutputDeviceId { get; set; }
     public string? MonitorDeviceId { get; set; }
+    public string? MonitorDeviceName { get; set; }
     public bool MonitorEnabled { get; set; }
     public float MonitorVoiceVolume { get; set; } = 1f;
     public float MonitorSoundVolume { get; set; } = 1f;

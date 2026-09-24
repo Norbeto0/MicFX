@@ -7,61 +7,51 @@
 The binaries are unsigned, so SmartScreen may warn on first run
 (More info > Run anyway). In-app updates are not affected.
 
-### Noise suppression
-
-- The AI engine is upgraded from RNNoise 0.1.1 to 0.2, xiph's retrained and
-  larger model. Measured on real speech (CMU ARCTIC, male and female voices)
-  mixed with four noise types at 0-20 dB SNR, noise left in pauses between
-  words:
-
-  | Noise          | 0.1.1   | 0.2     |
-  |----------------|---------|---------|
-  | Keyboard clicks| -4 dB   | -32 dB  |
-  | Preamp hiss    | -14 dB  | -61 dB  |
-  | Fan / AC       | -30 dB  | -65 dB  |
-  | Mains hum      | -20 dB  | -40 dB  |
-
-  Voice quality (SI-SDR improvement) also rises from +3.9 to +4.9 dB. CPU use
-  is unchanged at about 2% of one core per channel.
-- New strength control for the AI engine ("Max" by default). Lower values
-  blend some of the original signal back in, which can sound more natural;
-  at 24 dB it measured slightly better voice quality than full strength. The
-  original signal is delayed to line up exactly with the model output, which
-  avoids the comb filtering a plain blend would cause.
-- New "Silence between phrases" option (AI engine only): mutes the mic when
-  you are not speaking, using the model's own speech detection rather than
-  loudness, so desk knocks and key presses do not open it. Calibrated on the
-  same recordings: at realistic room noise it keeps 99.0-99.6% of speech
-  frames and never opened on noise alone. In a very loud room (noise as loud
-  as your voice) it can occasionally clip a syllable; leave it off there.
-- Removed the input level normalization added in 1.6. Tested on real speech
-  it made no measurable difference.
-- Latency: the new model takes 20 ms instead of 10 ms. The spectral engine is
-  unaffected.
-
-### Also new
-
-- Safety limiter on the output and the headphone monitor: nothing leaves
-  MicFX above -1 dBFS, so your voice plus a loud clip cannot distort in
-  Discord or blast your ears. 1 ms lookahead; audio below the ceiling is
-  passed through unchanged.
-- Level meters turn red when the mic input clips (lower Mic gain) or when the
-  output limiter has to act (you are louder than needed). Hover for details.
-- Soundboard loudness matching ("Even out loudness", on by default): each clip
-  is measured once using ITU-R BS.1770 and played at about -20 LUFS, so quiet
-  and loud clips come out at similar volume. Quiet clips are raised at most
-  12 dB. Per-clip volume still applies on top.
-- Theme color in the settings menu: eight presets or any custom color.
-  Applies immediately.
-- "Check for updates" button in the settings menu, next to the installed
-  version. The automatic check at startup is unchanged.
-- The audio code now has a test suite in the repository (44 tests), and the
-  release build runs it against the Windows RNNoise library it just compiled.
-
 ### Fixes
 
-- Clicking the settings button while the menu was open reopened it instead of
-  closing it.
+- Headphone monitor stayed silent if the headphones were switched on after
+  MicFX started (e.g. after boot), or were turned off and on while it was
+  running, even though it showed as enabled. It now opens them as soon as
+  they appear and recovers within about a second after the device resets
+  (power cycle, replug, sample rate change).
+- The monitor device is remembered while the headphones are off. The list
+  shows it as "(not connected)" instead of switching to the Windows default
+  device.
+- If the output device (the virtual cable) resets, the engine restarts itself
+  instead of running silently.
+
+### Spectral noise suppression
+
+- Rewritten. The old version set each frequency's gain from that instant's
+  noise level, so random noise peaks got through as short tones (the chirpy,
+  watery "musical noise"), and it removed only about 8 dB whatever the strength
+  was set to. It now estimates speech per frequency over several frames
+  (decision-directed, Ephraim-Malah) and holds pauses at the set level.
+  Measured on real speech with fan, hiss and hum noise at 10-20 dB SNR:
+
+  | Strength | Noise removed in pauses, 1.10.0 | 1.10.1 |
+  |----------|---------------------------------|--------|
+  | 18 dB    | 8 dB                            | 18 dB  |
+  | 30 dB    | 9 dB                            | 30 dB  |
+
+  Musical noise (log kurtosis ratio of the leftover noise, 0 = same character
+  as the original noise, only quieter) went from 1.4 to 0.0.
+- A single frame of voice can no longer pull the noise estimate up, so held
+  notes and soft syllables are not learned as noise and suppressed later.
+- The AI engine is still the better choice for anything but steady noise.
+
+### Voice leveler
+
+- Make-up gain now applies to your voice, not to the silence between words.
+  At 100 it used to lift pauses by up to 13.75 dB, which undid most of the
+  noise suppression and made the leftover noise pump up between words.
+  After spectral suppression at 18 dB: pauses at -62.5 dBFS instead of -51,
+  same speech level.
+
+### Layout
+
+- The equalizer stops growing at a comfortable height; extra window height
+  goes to the soundboard.
 
 ### First-time setup
 

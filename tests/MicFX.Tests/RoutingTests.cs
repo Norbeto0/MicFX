@@ -66,6 +66,30 @@ public class RoutingTests
     public void ChooseInput_WithoutPreferred_UsesPrimary() =>
         Assert.Equal("desk", AudioDevices.ChooseInput(null, "desk", new[] { "desk", "quest" }));
 
+    private static readonly AudioDeviceInfo[] Speakers =
+        { new("spk", "Speakers (Realtek)"), new("cable", "CABLE Input (VB-Audio Virtual Cable)") };
+
+    [Fact]
+    public void WithRemembered_KeepsSwitchedOffDevice()
+    {
+        var list = AudioDevices.WithRemembered(Speakers, "fiio", "FiiO (2- FiiO BTR17)");
+        Assert.Equal(3, list.Count);
+        Assert.Equal(new AudioDeviceInfo("fiio", "FiiO (2- FiiO BTR17) (not connected)"), list[2]);
+    }
+
+    [Fact]
+    public void WithRemembered_LeavesConnectedDeviceAlone() =>
+        Assert.Equal(Speakers, AudioDevices.WithRemembered(Speakers, "spk", "Speakers (Realtek)"));
+
+    [Fact]
+    public void WithRemembered_NothingRemembered() =>
+        Assert.Equal(Speakers, AudioDevices.WithRemembered(Speakers, null, null));
+
+    [Fact]
+    public void WithRemembered_UnknownName() =>
+        Assert.Equal("remembered device (not connected)",
+            AudioDevices.WithRemembered(Speakers, "gone", null)[^1].Name);
+
     [Theory]
     [InlineData("CABLE Output (VB-Audio Virtual Cable)", "CABLE Input (VB-Audio Virtual Cable)", true)]
     [InlineData("CABLE-A Output (VB-Audio Cable A)", "CABLE-A Input (VB-Audio Cable A)", true)]

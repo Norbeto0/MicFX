@@ -5,6 +5,13 @@ namespace MicFX.Audio;
 /// <summary>
 /// Broadcast-style voice leveler: downward compressor with auto make-up gain,
 /// driven by a single 0–100 "amount" control (higher = tighter, louder).
+///
+/// Make-up gain applies to the voice, not to the silence between words: it
+/// fades out as the envelope falls from -50 to -65 dBFS. Otherwise, at 100 it
+/// lifts pauses by up to 13.75 dB, which undoes most of the noise suppression
+/// before it (measured: pauses at -51 instead of -62.5 dBFS after spectral
+/// suppression at 18 dB, with the same speech level) and makes the leftover
+/// noise pump up between words.
 /// </summary>
 public class CompressorSampleProvider : ISampleProvider
 {
@@ -17,6 +24,9 @@ public class CompressorSampleProvider : ISampleProvider
     private float ratio = 4f;
     private float makeupDb = 7.9f;
     private float envelopeDb = -100f;
+
+    private const float MakeupFullDb = -50f;  // envelope at and above which make-up is fully applied
+    private const float MakeupNoneDb = -65f;  // envelope at and below which none is
 
     public bool Enabled { get; set; }
     public WaveFormat WaveFormat => source.WaveFormat;
@@ -60,7 +70,8 @@ public class CompressorSampleProvider : ISampleProvider
 
             float over = envelopeDb - thresholdDb;
             float reductionDb = over > 0f ? over * (1f - 1f / ratio) : 0f;
-            float gain = MathF.Pow(10f, (makeupDb - reductionDb) / 20f);
+            float makeupShare = Math.Clamp((envelopeDb - MakeupNoneDb) / (MakeupFullDb - MakeupNoneDb), 0f, 1f);
+            float gain = MathF.Pow(10f, (makeupDb * makeupShare - reductionDb) / 20f);
 
             for (int ch = 0; ch < channels && i + ch < read; ch++)
             {
